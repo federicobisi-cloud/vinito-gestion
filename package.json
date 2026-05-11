@@ -1,0 +1,12 @@
+{
+  "name": "vinito-gestion",
+  "version": "1.0.0",
+  "description": "VINITO - Sistema de gestión de proveedores",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
