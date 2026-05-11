@@ -1,0 +1,4 @@
+[[redirects]]
+  from = "/*"
+  to   = "/VINITO_sistema_gestion.html"
+  status = 200

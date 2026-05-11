@@ -1,0 +1,60 @@
+════════════════════════════════════════════════════════════
+  VINITO — Instrucciones para poner en producción
+════════════════════════════════════════════════════════════
+
+PASO 1 — Crear la base de datos en Supabase
+────────────────────────────────────────────
+1. Entrá a https://supabase.com/dashboard/project/vhbdrumugvecpmucudpr
+2. En el menú izquierdo, hacé clic en "SQL Editor"
+3. Hacé clic en "New query"
+4. Abrí el archivo VINITO_supabase_setup.sql con el Bloc de notas
+5. Copiá TODO el contenido y pegalo en el editor
+6. Hacé clic en el botón "Run" (triángulo verde, arriba a la derecha)
+7. Debe decir "Success. No rows returned" — eso es correcto ✅
+
+PASO 2 — Subir el sitio a Netlify
+───────────────────────────────────
+1. Entrá a https://netlify.com e iniciá sesión
+2. En el panel principal, buscá el recuadro que dice
+   "Want to deploy a new site without connecting to Git?"
+   y hacé clic en "browse to upload" (o arrastrá los archivos)
+3. Seleccioná los 3 archivos juntos:
+   • VINITO_sistema_gestion.html
+   • netlify.toml
+   • (podés ignorar los otros archivos .sql y .txt)
+4. Netlify te da una URL del tipo: https://nombre-random.netlify.app
+   ¡El sistema ya está en línea! ✅
+
+PASO 3 — Conectar tu dominio vinito.com (subdominio gestion.vinito.com)
+────────────────────────────────────────────────────────────────────────
+En Netlify:
+1. Andá a tu sitio → "Domain settings" → "Add custom domain"
+2. Escribí: gestion.vinito.com → clic en "Verify"
+3. Netlify te muestra un valor CNAME, algo así:
+   nombre-random.netlify.app
+
+En GoDaddy:
+1. Entrá a https://dcc.godaddy.com/manage/vinito.com/dns
+2. Hacé clic en "Agregar registro DNS"
+3. Tipo: CNAME
+   Nombre: gestion
+   Valor: (el nombre que te dio Netlify, ej: nombre-random.netlify.app)
+   TTL: 1 hora
+4. Guardá
+5. Esperá 5-30 minutos y ya podés entrar desde: https://gestion.vinito.com
+
+PASO 4 — Cambiar las contraseñas (opcional pero recomendado)
+──────────────────────────────────────────────────────────────
+Podés cambiar las contraseñas directamente en Supabase:
+1. Supabase → SQL Editor → New query
+2. Ejecutá:
+   UPDATE config SET value = 'TU_NUEVA_CLAVE' WHERE key = 'pw_admin';
+   UPDATE config SET value = 'TU_NUEVA_CLAVE' WHERE key = 'pw_reader';
+
+Contraseñas actuales:
+  Administrador: vinito2025
+  Lector:        lector123
+
+════════════════════════════════════════════════════════════
+  ¿Dudas? Consultá directamente y te guío paso a paso.
+════════════════════════════════════════════════════════════
