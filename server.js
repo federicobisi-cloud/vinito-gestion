@@ -5,6 +5,10 @@ const { Pool } = require('pg');
 const path = require('path');
 
 const app = express();
+// Railway y el reverse proxy de vinitorosario.com terminan el HTTPS antes de
+// llegar acá; sin esto Express no reconoce la conexión como segura y
+// express-session no persiste bien la cookie de sesión (login "fantasma").
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 
 const pool = new Pool({
