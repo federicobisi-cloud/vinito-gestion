@@ -113,6 +113,43 @@ app.post('/api/proveedores', requireAdmin, async (req, res) => {
   }
 });
 
+// Edición de un proveedor ya cargado. Si se le cambia el nombre, actualizamos
+// también las boletas y cheques existentes para no perder el vínculo.
+app.put('/api/proveedores/:id', requireAdmin, async (req, res) => {
+  const { nombre, categoria, cuit, telefono, email, dias, nota } = req.body;
+  if (!nombre || !nombre.trim()) {
+    return res.status(400).json({ error: 'Ingresá el nombre del proveedor' });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const existingResult = await client.query('SELECT * FROM proveedores WHERE id=$1', [req.params.id]);
+    const existing = existingResult.rows[0];
+    if (!existing) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Proveedor no encontrado' });
+    }
+    const nuevoNombre = nombre.trim();
+    const result = await client.query(
+      `UPDATE proveedores SET nombre=$1, categoria=$2, cuit=$3, telefono=$4, email=$5, dias=$6, nota=$7
+       WHERE id=$8 RETURNING *`,
+      [nuevoNombre, categoria, cuit, telefono, email, dias, nota, req.params.id]
+    );
+    if (existing.nombre !== nuevoNombre) {
+      await client.query('UPDATE boletas SET proveedor=$1 WHERE proveedor=$2', [nuevoNombre, existing.nombre]);
+      await client.query('UPDATE cheques SET proveedor=$1 WHERE proveedor=$2', [nuevoNombre, existing.nombre]);
+    }
+    await client.query('COMMIT');
+    res.json(result.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Error al actualizar el proveedor' });
+  } finally {
+    client.release();
+  }
+});
+
 // ---------- Boletas ----------
 app.post('/api/boletas', requireAdmin, async (req, res) => {
   const {
