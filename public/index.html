@@ -529,7 +529,7 @@ textarea{resize:vertical;min-height:52px}
 <!-- MODAL PROV -->
 <div class="overlay" id="modal-prov">
 <div class="modal">
-  <div class="mhead"><span class="mtitle">Nuevo proveedor</span><button class="ab" onclick="closeModal('prov')"><i class="ti ti-x"></i></button></div>
+  <div class="mhead"><span class="mtitle" id="prov-modal-title">Nuevo proveedor</span><button class="ab" onclick="closeModal('prov')"><i class="ti ti-x"></i></button></div>
   <div class="mbody">
     <div class="fg2">
       <div class="fg"><label>Nombre / razón social *</label><input type="text" id="p-n" placeholder="Ej: Bodegas López SA"></div>
@@ -545,7 +545,7 @@ textarea{resize:vertical;min-height:52px}
   </div>
   <div class="mfoot">
     <button class="btn" onclick="closeModal('prov')">Cancelar</button>
-    <button class="btn btn-wine" onclick="saveProv()"><i class="ti ti-check"></i> Guardar proveedor</button>
+    <button class="btn btn-wine" onclick="saveProv()"><i class="ti ti-check"></i> <span id="btn-save-prov-txt">Guardar proveedor</span></button>
   </div>
 </div>
 </div>
@@ -613,6 +613,7 @@ let cheques = [];
 let proveedores = [];
 let pollTimer = null;
 let editingBoletaId = null;
+let editingProvId = null;
 
 // Detecta si la app está montada bajo un subpath (ej: vinitorosario.com/administracion
 // vía reverse proxy) en vez de en la raíz del dominio (vinito-gestion-production.up.railway.app).
@@ -936,7 +937,11 @@ function renderProveedores(){
   $f('prov-grid').innerHTML=proveedores.map(p=>{
     const bs=boletas.filter(b=>b.prov===p.n);
     const deu=calcDeuda(bs);
-    return `<div class="prov-card"><div class="pav">${ini(p.n)}</div>
+    return `<div class="prov-card">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+        <div class="pav">${ini(p.n)}</div>
+        <button class="ab" title="Editar proveedor" onclick="editProv(${p.id})" ${!isA()?'disabled':''}><i class="ti ti-pencil"></i></button>
+      </div>
       <div class="pn">${p.n}</div><div class="pc">${p.c}</div>
       <div style="border-top:0.5px solid var(--br);padding-top:8px">
         <div class="ps"><span>Boletas totales</span><span>${bs.length}</span></div>
@@ -1023,7 +1028,7 @@ function selectTgOn(onclickSubstr, matchValue){
   });
 }
 
-function openModal(t, editBoleta){
+function openModal(t, editBoleta, editProvObj){
   if((t==='boleta'||t==='prov')&&!isA()){toast('Solo el administrador puede agregar registros','warn');return;}
   if(t==='boleta'){
     editingBoletaId = editBoleta ? editBoleta.id : null;
@@ -1071,18 +1076,37 @@ function openModal(t, editBoleta){
     renderProveedores();
     if(editBoleta) $f('f-prov').value = editBoleta.prov;
   } else if(t==='prov'){
-    ['p-n','p-cuit','p-tel','p-email','p-dias','p-nota'].forEach(id=>$f(id).value='');
+    editingProvId = editProvObj ? editProvObj.id : null;
+    $f('prov-modal-title').textContent = editProvObj ? 'Editar proveedor' : 'Nuevo proveedor';
+    $f('btn-save-prov-txt').textContent = editProvObj ? 'Guardar cambios' : 'Guardar proveedor';
+    if(editProvObj){
+      $f('p-n').value=editProvObj.n||'';
+      $f('p-c').value=editProvObj.c||'';
+      $f('p-cuit').value=editProvObj.cuit||'';
+      $f('p-tel').value=editProvObj.tel||'';
+      $f('p-email').value=editProvObj.email||'';
+      $f('p-dias').value=editProvObj.dias||'';
+      $f('p-nota').value=editProvObj.nota||'';
+    } else {
+      ['p-n','p-cuit','p-tel','p-email','p-dias','p-nota'].forEach(id=>$f(id).value='');
+    }
   } else if(t==='email'){
     renderEmailItems();
   }
   $f('modal-'+t).classList.add('open');
 }
-function closeModal(t){$f('modal-'+t).classList.remove('open');if(t==='boleta')editingBoletaId=null;}
+function closeModal(t){$f('modal-'+t).classList.remove('open');if(t==='boleta')editingBoletaId=null;if(t==='prov')editingProvId=null;}
 function editB(id){
   if(!isA())return;
   const b=boletas.find(x=>x.id===id);
   if(!b)return;
   openModal('boleta', b);
+}
+function editProv(id){
+  if(!isA())return;
+  const p=proveedores.find(x=>x.id===id);
+  if(!p)return;
+  openModal('prov', null, p);
 }
 
 async function saveBoleta(){
@@ -1121,11 +1145,17 @@ async function saveProv(){
   const payload = { nombre:n, categoria:$f('p-c').value, cuit:$f('p-cuit').value, telefono:$f('p-tel').value,
     email:$f('p-email').value, dias:$f('p-dias').value, nota:$f('p-nota').value };
   try {
-    await api('/proveedores', { method:'POST', body: JSON.stringify(payload) });
+    const wasEditing = editingProvId;
+    if(wasEditing){
+      await api(`/proveedores/${editingProvId}`, { method:'PUT', body: JSON.stringify(payload) });
+    } else {
+      await api('/proveedores', { method:'POST', body: JSON.stringify(payload) });
+    }
+    editingProvId = null;
     closeModal('prov');
     await loadState();
-    renderProveedores();
-    toast('Proveedor agregado correctamente','ok');
+    renderProveedores();renderBoletas();renderHistorial();renderLocales();
+    toast(wasEditing?'Proveedor actualizado correctamente':'Proveedor agregado correctamente','ok');
   } catch (err) { alert(err.message); }
 }
 
