@@ -165,6 +165,79 @@ app.post('/api/boletas', requireAdmin, async (req, res) => {
   }
 });
 
+// Edición de una boleta ya cargada (monto, número, fecha, etc.)
+app.put('/api/boletas/:id', requireAdmin, async (req, res) => {
+  const {
+    tipoDoc, tipoFact, proveedor, numero, fecha, vencimiento,
+    formaPago, local, neto, iva, monto, descripcion, notas,
+    cheque, // { numero, banco, fechaCheque } | null
+  } = req.body;
+
+  if (!proveedor || !fecha) {
+    return res.status(400).json({ error: 'Completá los campos obligatorios' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const existingResult = await client.query('SELECT * FROM boletas WHERE id=$1', [req.params.id]);
+    const existing = existingResult.rows[0];
+    if (!existing) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Boleta no encontrada' });
+    }
+
+    const isCheque = formaPago === 'cheque';
+    let chequeId = existing.cheque_id;
+
+    if (existing.cheque_id && !isCheque) {
+      // Dejó de pagarse con cheque: eliminamos el cheque asociado.
+      await client.query('DELETE FROM cheques WHERE id=$1', [existing.cheque_id]);
+      chequeId = null;
+    } else if (existing.cheque_id && isCheque) {
+      // Sigue siendo cheque: actualizamos sus datos.
+      await client.query(
+        `UPDATE cheques SET numero=$1, proveedor=$2, banco=$3, fecha_emision=$4, fecha_cheque=$5, monto=$6 WHERE id=$7`,
+        [cheque?.numero || null, proveedor, cheque?.banco || null, fecha, cheque?.fechaCheque || fecha, monto, existing.cheque_id]
+      );
+    } else if (!existing.cheque_id && isCheque) {
+      // Pasó a pagarse con cheque: creamos uno nuevo.
+      const chequeResult = await client.query(
+        `INSERT INTO cheques (numero, proveedor, banco, fecha_emision, fecha_cheque, monto, estado, boleta_id)
+         VALUES ($1,$2,$3,$4,$5,$6,'pendiente',$7) RETURNING *`,
+        [cheque?.numero || null, proveedor, cheque?.banco || null, fecha, cheque?.fechaCheque || fecha, monto, existing.id]
+      );
+      chequeId = chequeResult.rows[0].id;
+    }
+
+    // Preservamos el estado salvo que el cambio de forma de pago lo requiera.
+    let estado = existing.estado;
+    if (isCheque && existing.forma_pago !== 'cheque') estado = 'cheque_pendiente';
+    if (!isCheque && existing.estado === 'cheque_pendiente') estado = 'deuda';
+
+    const updateResult = await client.query(
+      `UPDATE boletas SET
+        tipo_doc=$1, tipo_fact=$2, proveedor=$3, numero=$4, fecha=$5, vencimiento=$6,
+        forma_pago=$7, local=$8, neto=$9, iva=$10, monto=$11, descripcion=$12, notas=$13,
+        estado=$14, cheque_id=$15
+       WHERE id=$16 RETURNING *`,
+      [tipoDoc, tipoFact || null, proveedor, numero || null, fecha, vencimiento || null,
+       formaPago, local, neto || 0, iva, monto, descripcion || null, notas || null,
+       estado, chequeId, req.params.id]
+    );
+
+    await client.query('COMMIT');
+    res.json(updateResult.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Error al actualizar la boleta' });
+  } finally {
+    client.release();
+  }
+});
+
 app.put('/api/boletas/:id/pagar', requireAdmin, async (req, res) => {
   try {
     const result = await pool.query(
