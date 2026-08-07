@@ -276,10 +276,11 @@ app.put('/api/boletas/:id', requireAdmin, async (req, res) => {
 });
 
 app.put('/api/boletas/:id/pagar', requireAdmin, async (req, res) => {
+  const { formaPagoReal } = req.body || {};
   try {
     const result = await pool.query(
-      `UPDATE boletas SET estado='pagado' WHERE id=$1 AND estado<>'pagado' RETURNING *`,
-      [req.params.id]
+      `UPDATE boletas SET estado='pagado', pago_real=$1, pago_fecha=CURRENT_DATE WHERE id=$2 AND estado<>'pagado' RETURNING *`,
+      [formaPagoReal || null, req.params.id]
     );
     res.json(result.rows[0] || null);
   } catch (err) {
@@ -288,13 +289,31 @@ app.put('/api/boletas/:id/pagar', requireAdmin, async (req, res) => {
   }
 });
 
+// Revierte una boleta pagada por error, de vuelta a "deuda" (o "cheque_pendiente" si era a cheque).
+app.put('/api/boletas/:id/despagar', requireAdmin, async (req, res) => {
+  try {
+    const existingResult = await pool.query('SELECT * FROM boletas WHERE id=$1', [req.params.id]);
+    const existing = existingResult.rows[0];
+    if (!existing) return res.status(404).json({ error: 'Boleta no encontrada' });
+    const nuevoEstado = existing.forma_pago === 'cheque' ? 'cheque_pendiente' : 'deuda';
+    const result = await pool.query(
+      `UPDATE boletas SET estado=$1, pago_real=NULL, pago_fecha=NULL WHERE id=$2 RETURNING *`,
+      [nuevoEstado, req.params.id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al revertir el pago' });
+  }
+});
+
 app.post('/api/boletas/bulk-pagar', requireAdmin, async (req, res) => {
-  const { ids } = req.body;
+  const { ids, formaPagoReal } = req.body;
   if (!Array.isArray(ids) || ids.length === 0) return res.json({ updated: 0 });
   try {
     const result = await pool.query(
-      `UPDATE boletas SET estado='pagado' WHERE id = ANY($1::int[]) AND estado<>'pagado'`,
-      [ids]
+      `UPDATE boletas SET estado='pagado', pago_real=$1, pago_fecha=CURRENT_DATE WHERE id = ANY($2::int[]) AND estado<>'pagado'`,
+      [formaPagoReal || null, ids]
     );
     res.json({ updated: result.rowCount });
   } catch (err) {
@@ -324,7 +343,7 @@ app.put('/api/cheques/:id/acreditar', requireAdmin, async (req, res) => {
     );
     const cheque = chequeResult.rows[0];
     if (cheque && cheque.boleta_id) {
-      await client.query(`UPDATE boletas SET estado='pagado' WHERE id=$1`, [cheque.boleta_id]);
+      await client.query(`UPDATE boletas SET estado='pagado', pago_real='cheque', pago_fecha=CURRENT_DATE WHERE id=$1`, [cheque.boleta_id]);
     }
     await client.query('COMMIT');
     res.json(cheque || null);
