@@ -460,6 +460,11 @@ async function initVinos() {
       ON CONFLICT DO NOTHING;
     UPDATE vino_planillas SET url='https://docs.google.com/spreadsheets/d/1XrxCwVQ95iD_Z6fQP7ARj1IzM6Fg6TFB2H1UzUY2f3M/edit?gid=1162959689'
       WHERE local='Pichincha' AND tipo='catalogo' AND (url IS NULL OR url='');
+    -- planilla de stock que completa el encargado (una pestaña por local)
+    INSERT INTO vino_planillas (local, tipo, url) VALUES
+      ('Wheelwright', 'stock', 'https://docs.google.com/spreadsheets/d/1M-n_xUKsHo12LEgYTCI8bp3ARBOA0nRq_zaS_qQZv5Q/edit?gid=1834524866'),
+      ('Pichincha', 'stock', 'https://docs.google.com/spreadsheets/d/1M-n_xUKsHo12LEgYTCI8bp3ARBOA0nRq_zaS_qQZv5Q/edit?gid=116525467')
+      ON CONFLICT (local, tipo) DO UPDATE SET url=EXCLUDED.url WHERE vino_planillas.url IS NULL OR vino_planillas.url='';
   `);
 }
 initVinos().catch((err) => console.error('Error creando tablas de vinos:', err));
