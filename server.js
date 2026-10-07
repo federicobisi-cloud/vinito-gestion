@@ -435,6 +435,28 @@ async function initVinos() {
     CREATE INDEX IF NOT EXISTS idx_vmov_vino ON vino_movimientos(vino_id);
     CREATE INDEX IF NOT EXISTS idx_vmov_fecha ON vino_movimientos(fecha);
     UPDATE vino_movimientos SET local='Wheelwright' WHERE local='Centro';
+    ALTER TABLE vinos ADD COLUMN IF NOT EXISTS region TEXT;
+    ALTER TABLE vinos ADD COLUMN IF NOT EXISTS clave TEXT;
+    CREATE INDEX IF NOT EXISTS idx_vinos_clave ON vinos(clave);
+    -- qué vinos trabaja cada local (cada local tiene su carta y su stock)
+    CREATE TABLE IF NOT EXISTS vino_locales (
+      vino_id INTEGER NOT NULL REFERENCES vinos(id) ON DELETE CASCADE,
+      local   TEXT NOT NULL,
+      PRIMARY KEY (vino_id, local)
+    );
+    INSERT INTO vino_locales (vino_id, local)
+      SELECT DISTINCT vino_id, local FROM vino_movimientos ON CONFLICT DO NOTHING;
+    -- planillas de Google Sheets de cada local: 'catalogo' (carta con costos) y 'stock' (la que carga el encargado)
+    CREATE TABLE IF NOT EXISTS vino_planillas (
+      local TEXT NOT NULL,
+      tipo  TEXT NOT NULL,
+      url   TEXT,
+      ultima_sync TIMESTAMPTZ,
+      PRIMARY KEY (local, tipo)
+    );
+    INSERT INTO vino_planillas (local, tipo, url) VALUES
+      ('Wheelwright', 'catalogo', 'https://docs.google.com/spreadsheets/d/1UwBQvJmzbi9fmOcTMXl660n2D3lmuWa5vgRgsAiVAyM/edit?gid=0')
+      ON CONFLICT DO NOTHING;
   `);
 }
 initVinos().catch((err) => console.error('Error creando tablas de vinos:', err));
@@ -449,19 +471,24 @@ function vinoParams(b) {
   return [
     (b.nombre || '').trim(), b.bodega || null, b.varietal || null, b.anada || null, b.tipo || null,
     b.proveedor || null, num(b.costo), num(b.precioBotella), num(b.precioCopa),
-    num(b.copasPorBotella) || 5, num(b.stockMinimo), b.activo !== false,
+    num(b.copasPorBotella) || 5, num(b.stockMinimo), b.activo !== false, b.region || null,
   ];
+}
+async function vincularLocal(db, vinoId, local) {
+  if (!LOCALES_VINO.includes(local)) return;
+  await db.query('INSERT INTO vino_locales (vino_id, local) VALUES ($1,$2) ON CONFLICT DO NOTHING', [vinoId, local]);
 }
 
 app.get('/api/vinos/state', requireAuth, async (req, res) => {
   try {
-    const [vinos, movs] = await Promise.all([
+    const [vinos, movs, vlocs] = await Promise.all([
       pool.query('SELECT * FROM vinos ORDER BY nombre ASC'),
       pool.query(`SELECT id, vino_id, local, tipo, cantidad, costo_unit, precio_unit,
                          to_char(fecha,'YYYY-MM-DD') AS fecha, nota, grupo, usuario
                   FROM vino_movimientos ORDER BY fecha DESC, id DESC`),
+      pool.query('SELECT vino_id, local FROM vino_locales'),
     ]);
-    res.json({ vinos: vinos.rows, movimientos: movs.rows, locales: LOCALES_VINO });
+    res.json({ vinos: vinos.rows, movimientos: movs.rows, vinoLocales: vlocs.rows, locales: LOCALES_VINO });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Error al cargar los vinos' });
@@ -472,10 +499,11 @@ app.post('/api/vinos', requireAdmin, async (req, res) => {
   if (!req.body.nombre || !req.body.nombre.trim()) return res.status(400).json({ error: 'Ingresá el nombre del vino' });
   try {
     const r = await pool.query(
-      `INSERT INTO vinos (nombre, bodega, varietal, anada, tipo, proveedor, costo, precio_botella, precio_copa, copas_por_botella, stock_minimo, activo)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      `INSERT INTO vinos (nombre, bodega, varietal, anada, tipo, proveedor, costo, precio_botella, precio_copa, copas_por_botella, stock_minimo, activo, region)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
       vinoParams(req.body)
     );
+    await vincularLocal(pool, r.rows[0].id, req.body.local);
     res.json(r.rows[0]);
   } catch (err) {
     console.error(err);
@@ -488,8 +516,8 @@ app.put('/api/vinos/:id', requireAdmin, async (req, res) => {
   try {
     const r = await pool.query(
       `UPDATE vinos SET nombre=$1, bodega=$2, varietal=$3, anada=$4, tipo=$5, proveedor=$6, costo=$7,
-         precio_botella=$8, precio_copa=$9, copas_por_botella=$10, stock_minimo=$11, activo=$12, updated_at=now()
-       WHERE id=$13 RETURNING *`,
+         precio_botella=$8, precio_copa=$9, copas_por_botella=$10, stock_minimo=$11, activo=$12, region=$13, updated_at=now()
+       WHERE id=$14 RETURNING *`,
       [...vinoParams(req.body), req.params.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: 'Vino no encontrado' });
@@ -545,6 +573,7 @@ app.post('/api/vinos/movimientos', requireAdmin, async (req, res) => {
       else if (tipo === 'transferencia') rows.push([local, -Math.abs(cant)], [localDestino, Math.abs(cant)]);
       else rows.push([local, SIGNO_MOV[tipo] * Math.abs(cant)]);
       for (const [lc, c] of rows) {
+        await vincularLocal(client, vino.id, lc);
         await client.query(
           `INSERT INTO vino_movimientos (vino_id, local, tipo, cantidad, costo_unit, precio_unit, fecha, nota, grupo, usuario)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
@@ -619,6 +648,233 @@ app.post('/api/vinos/conteo', requireAdmin, async (req, res) => {
     await client.query('ROLLBACK');
     console.error(err);
     res.status(500).json({ error: 'Error al guardar el conteo' });
+  } finally {
+    client.release();
+  }
+});
+
+// =====================================================================
+// ---------- SINCRONIZACIÓN CON GOOGLE SHEETS ----------
+// Usa la misma cuenta de servicio que la carta de Wheelwright
+// (variable GOOGLE_CREDENTIALS). Cada planilla tiene que estar compartida
+// con el email de esa cuenta (solo lectura alcanza).
+//  · 'catalogo': la planilla de vinos del local. Columnas: A tipo, C etiqueta,
+//    D cepa, F bodega, H región, I distribuidor, L costo, N precio carta.
+//  · 'stock': la planilla que completa el encargado. Necesita una columna
+//    SKU (o ETIQUETA/CEPA/BODEGA) y una columna STOCK con las botellas contadas.
+// =====================================================================
+let googleSheetsApi = null;
+function sheetsClient() {
+  if (!process.env.GOOGLE_CREDENTIALS) {
+    throw new Error('Falta configurar GOOGLE_CREDENTIALS en Railway (la misma cuenta de servicio que usa la carta de Wheelwright).');
+  }
+  if (!googleSheetsApi) {
+    const { google } = require('googleapis');
+    const auth = new google.auth.GoogleAuth({
+      credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
+      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    });
+    googleSheetsApi = google.sheets({ version: 'v4', auth });
+  }
+  return googleSheetsApi;
+}
+function serviceAccountEmail() {
+  try { return JSON.parse(process.env.GOOGLE_CREDENTIALS || '{}').client_email || null; } catch (e) { return null; }
+}
+function parseSheetUrl(url) {
+  const id = (String(url || '').match(/\/d\/([a-zA-Z0-9-_]+)/) || [])[1] || (/^[a-zA-Z0-9-_]{25,}$/.test(url || '') ? url : null);
+  const gid = (String(url || '').match(/[#&?]gid=(\d+)/) || [])[1];
+  return { id, gid: gid != null ? Number(gid) : null };
+}
+async function leerHoja(url) {
+  const { id, gid } = parseSheetUrl(url);
+  if (!id) throw new Error('El link de la planilla no es válido');
+  const sheets = sheetsClient();
+  let meta;
+  try {
+    meta = await sheets.spreadsheets.get({ spreadsheetId: id, fields: 'sheets.properties(sheetId,title)' });
+  } catch (err) {
+    const code = err.code || (err.response && err.response.status);
+    if (code === 403 || code === 404) {
+      throw new Error(`No tengo acceso a la planilla. Compartila (lector) con ${serviceAccountEmail() || 'la cuenta de servicio'}`);
+    }
+    throw err;
+  }
+  const hojas = meta.data.sheets.map((s) => s.properties);
+  const hoja = (gid != null && hojas.find((h) => h.sheetId === gid)) || hojas[0];
+  const r = await sheets.spreadsheets.values.get({ spreadsheetId: id, range: `'${hoja.title.replace(/'/g, "''")}'!A1:Z3000` });
+  return r.data.values || [];
+}
+function norm(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+}
+function claveVino(etiqueta, cepa, bodega) { return [norm(etiqueta), norm(cepa), norm(bodega)].join('|'); }
+function plata(v) {
+  const s = String(v || '').replace(/[^0-9,.-]/g, '');
+  if (!s) return 0;
+  // formato argentino: 12.096,50 → 12096.50
+  return num(s.replace(/\./g, '').replace(',', '.'));
+}
+function capitalizar(s) {
+  const t = String(s || '').trim();
+  if (!t) return null;
+  return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+}
+
+async function syncCatalogo(client, local, url) {
+  const filas = await leerHoja(url);
+  const res = { leidos: 0, creados: 0, actualizados: 0 };
+  const existentes = await client.query('SELECT id, clave, nombre, bodega, varietal FROM vinos');
+  const porClave = new Map();
+  existentes.rows.forEach((v) => porClave.set(v.clave || claveVino(v.nombre, v.varietal, v.bodega), v.id));
+  const vistos = new Set();
+  for (let i = 1; i < filas.length; i++) {
+    const f = filas[i];
+    const etiqueta = (f[2] || '').trim();
+    if (!etiqueta) continue;
+    const tipo = capitalizar(f[0]) || 'Tinto';
+    const cepa = (f[3] || '').trim() || null;
+    const bodega = (f[5] || '').trim() || null;
+    const region = (f[7] || '').trim() || null;
+    const proveedor = (f[8] || '').trim() || null;
+    const costo = plata(f[11]);
+    const precio = plata(f[13]);
+    const clave = claveVino(etiqueta, cepa, bodega);
+    if (vistos.has(clave)) continue; // fila repetida en la planilla
+    vistos.add(clave);
+    res.leidos++;
+    let id = porClave.get(clave);
+    if (id) {
+      // actualiza datos de la planilla; costo/precio solo si la planilla los trae
+      await client.query(
+        `UPDATE vinos SET nombre=$1, varietal=$2, bodega=$3, tipo=$4, region=$5, proveedor=COALESCE($6, proveedor),
+           costo=CASE WHEN $7::numeric > 0 THEN $7::numeric ELSE costo END,
+           precio_botella=CASE WHEN $8::numeric > 0 THEN $8::numeric ELSE precio_botella END,
+           clave=$9, activo=true, updated_at=now()
+         WHERE id=$10`,
+        [etiqueta, cepa, bodega, tipo, region, proveedor, costo, precio, clave, id]
+      );
+      res.actualizados++;
+    } else {
+      const r = await client.query(
+        `INSERT INTO vinos (nombre, varietal, bodega, tipo, region, proveedor, costo, precio_botella, clave)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+        [etiqueta, cepa, bodega, tipo, region, proveedor, costo, precio, clave]
+      );
+      id = r.rows[0].id;
+      porClave.set(clave, id);
+      res.creados++;
+    }
+    await vincularLocal(client, id, local);
+  }
+  return res;
+}
+
+async function syncStock(client, local, url, usuario) {
+  const filas = await leerHoja(url);
+  const res = { filas: 0, ajustes: 0, noEncontrados: [] };
+  // busca la fila de encabezados (la primera que tenga una columna STOCK)
+  let h = -1, cols = {};
+  for (let i = 0; i < Math.min(filas.length, 10); i++) {
+    const head = (filas[i] || []).map(norm);
+    const iStock = head.findIndex((x) => x === 'STOCK' || x.startsWith('STOCK') || x === 'CANTIDAD' || x === 'BOTELLAS');
+    if (iStock >= 0) {
+      h = i;
+      cols = { stock: iStock, sku: head.indexOf('SKU'), etiqueta: head.indexOf('ETIQUETA'), cepa: head.indexOf('CEPA'), bodega: head.indexOf('BODEGA') };
+      break;
+    }
+  }
+  if (h < 0) throw new Error('La planilla de stock necesita una columna llamada STOCK');
+  const vinos = await client.query('SELECT * FROM vinos');
+  const porId = new Map(vinos.rows.map((v) => [v.id, v]));
+  const porClave = new Map(vinos.rows.map((v) => [v.clave || claveVino(v.nombre, v.varietal, v.bodega), v]));
+  const sr = await client.query('SELECT vino_id, COALESCE(SUM(cantidad),0) AS stock FROM vino_movimientos WHERE local=$1 GROUP BY vino_id', [local]);
+  const stock = new Map(sr.rows.map((r) => [r.vino_id, num(r.stock)]));
+  const hoy = new Date().toISOString().slice(0, 10);
+  for (let i = h + 1; i < filas.length; i++) {
+    const f = filas[i] || [];
+    const crudo = String(f[cols.stock] == null ? '' : f[cols.stock]).trim();
+    if (crudo === '') continue;
+    const contado = num(crudo.replace(',', '.'));
+    let vino = null;
+    if (cols.sku >= 0 && f[cols.sku]) {
+      const m = String(f[cols.sku]).toUpperCase().match(/V?0*(\d+)/);
+      if (m) vino = porId.get(Number(m[1]));
+    }
+    if (!vino && cols.etiqueta >= 0) {
+      vino = porClave.get(claveVino(f[cols.etiqueta], cols.cepa >= 0 ? f[cols.cepa] : '', cols.bodega >= 0 ? f[cols.bodega] : ''));
+    }
+    if (!vino) { res.noEncontrados.push(String(f[cols.etiqueta] || f[cols.sku] || `fila ${i + 1}`)); continue; }
+    res.filas++;
+    await vincularLocal(client, vino.id, local);
+    const dif = contado - (stock.get(vino.id) || 0);
+    if (dif === 0) continue;
+    await client.query(
+      `INSERT INTO vino_movimientos (vino_id, local, tipo, cantidad, costo_unit, fecha, nota, usuario)
+       VALUES ($1,$2,'ajuste',$3,$4,$5,$6,$7)`,
+      [vino.id, local, dif, num(vino.costo), hoy, `Sincronización planilla de stock: ${contado} (sistema ${stock.get(vino.id) || 0})`, usuario]
+    );
+    stock.set(vino.id, contado);
+    res.ajustes++;
+  }
+  return res;
+}
+
+function requireAdminOSocio(req, res, next) {
+  if (req.session.role !== 'admin' && req.session.role !== 'socio') {
+    return res.status(403).json({ error: 'No tenés permiso para sincronizar' });
+  }
+  next();
+}
+
+app.get('/api/vinos-planillas', requireAdmin, async (req, res) => {
+  try {
+    const r = await pool.query('SELECT local, tipo, url, ultima_sync FROM vino_planillas');
+    res.json({ planillas: r.rows, serviceAccount: serviceAccountEmail(), credenciales: !!process.env.GOOGLE_CREDENTIALS });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al cargar las planillas' });
+  }
+});
+
+app.put('/api/vinos-planillas', requireAdmin, async (req, res) => {
+  const items = Array.isArray(req.body.planillas) ? req.body.planillas : [];
+  try {
+    for (const p of items) {
+      if (!LOCALES_VINO.includes(p.local) || !['catalogo', 'stock'].includes(p.tipo)) continue;
+      await pool.query(
+        `INSERT INTO vino_planillas (local, tipo, url) VALUES ($1,$2,$3)
+         ON CONFLICT (local, tipo) DO UPDATE SET url=EXCLUDED.url`,
+        [p.local, p.tipo, (p.url || '').trim() || null]
+      );
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al guardar las planillas' });
+  }
+});
+
+// Sincroniza un local: primero el catálogo (vinos, costos) y después el stock que cargó el encargado.
+app.post('/api/vinos/sync', requireAdminOSocio, async (req, res) => {
+  const { local } = req.body;
+  if (!LOCALES_VINO.includes(local)) return res.status(400).json({ error: 'Elegí el local' });
+  const pr = await pool.query('SELECT tipo, url FROM vino_planillas WHERE local=$1', [local]);
+  const urls = Object.fromEntries(pr.rows.map((r) => [r.tipo, r.url]));
+  if (!urls.catalogo && !urls.stock) return res.status(400).json({ error: `No hay planillas configuradas para ${local}` });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const out = { local };
+    if (urls.catalogo) out.catalogo = await syncCatalogo(client, local, urls.catalogo);
+    if (urls.stock) out.stock = await syncStock(client, local, urls.stock, req.session.role);
+    await client.query("UPDATE vino_planillas SET ultima_sync=now() WHERE local=$1 AND url IS NOT NULL", [local]);
+    await client.query('COMMIT');
+    res.json(out);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Error al sincronizar' });
   } finally {
     client.release();
   }
