@@ -213,6 +213,10 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
 .vsync-info{font-size:11px;color:var(--tx3);margin-left:auto}
 .pl-row{border:0.5px solid var(--br);border-radius:var(--r);padding:.85rem;margin-bottom:.75rem}
 .pl-row h4{font-size:13px;font-weight:500;margin-bottom:.6rem}
+/* colores por tipo de vino (pastel) */
+.tv{display:inline-block;font-size:10px;padding:2px 8px;border-radius:4px;background:var(--bg2);color:var(--tx2);font-weight:500}
+.tv-tinto{background:#f4c2c2;color:#7a1f2e}.tv-blanco{background:#fff3b0;color:#6b5a00}.tv-rosado{background:#f9d1e0;color:#8a2d55}
+.tv-espumante{background:#cdebc5;color:#2f6b25}.tv-naranjo{background:#ffd8b1;color:#8a4b0b}
 @media (max-width:1100px){.vgrid2{grid-template-columns:1fr}.stats-grid{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
@@ -1604,6 +1608,8 @@ const VTIPOS = {
 };
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function sku(id){return 'V'+String(id).padStart(4,'0')}
+function tvClass(t){return 'tv tv-'+String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')}
+function cepaChip(v){return v.var?`<span class="${tvClass(v.tipo)}" style="font-size:9px;padding:1px 6px">${esc(v.var)}</span>`:''}
 function nq(n){const r=Math.round(n*10)/10;return r.toLocaleString('es-AR')}
 function mapVino(r){return {id:r.id,nom:r.nombre,bod:r.bodega||'',var:r.varietal||'',ana:r.anada||'',tipo:r.tipo||'',prov:r.proveedor||'',
   reg:r.region||'',locs:new Set(),costo:Number(r.costo)||0,pb:Number(r.precio_botella)||0,pc:Number(r.precio_copa)||0,cpb:Number(r.copas_por_botella)||5,min:Number(r.stock_minimo)||0,act:r.activo!==false};}
@@ -1732,8 +1738,8 @@ function renderVStock(){
     tb+=s;tv+=Math.max(s,0)*v.costo;const bajo=v.min>0&&s<v.min;
     return `<tr>
       <td style="font-size:11px;color:var(--tx3)">${sku(v.id)}</td>
-      <td><div class="fw5">${esc(v.nom)}</div><div style="font-size:10px;color:var(--tx3)">${esc([v.bod,v.var,v.ana].filter(Boolean).join(' · '))}</div></td>
-      <td><span class="pill">${esc(v.tipo||'—')}</span></td>
+      <td><div class="fw5">${esc(v.nom)}</div><div style="font-size:10px;color:var(--tx3);margin-top:2px">${esc([v.bod,v.ana].filter(Boolean).join(' · '))} ${cepaChip(v)}</div></td>
+      <td><span class="${tvClass(v.tipo)}">${esc(v.tipo||'—')}</span></td>
       <td style="text-align:right;${s<0?'color:var(--tx-err)':''}" class="fw5">${nq(s)}${bajo?' <span class="badge b-x" title="Bajo mínimo">bajo</span>':''}</td>
       <td style="text-align:right;color:var(--tx3)">${v.min||'—'}</td>
       <td style="text-align:right">${fmt(v.costo)}</td>
