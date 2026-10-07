@@ -482,7 +482,8 @@ async function vincularLocal(db, vinoId, local) {
   await db.query('INSERT INTO vino_locales (vino_id, local) VALUES ($1,$2) ON CONFLICT DO NOTHING', [vinoId, local]);
 }
 
-app.get('/api/vinos/state', requireAuth, async (req, res) => {
+// El lector (contadora) no ve el stock de vinos: solo admin y socio.
+app.get('/api/vinos/state', requireAdminOSocio, async (req, res) => {
   try {
     const [vinos, movs, vlocs] = await Promise.all([
       pool.query('SELECT * FROM vinos ORDER BY nombre ASC'),
