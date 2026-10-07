@@ -209,6 +209,10 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
 .vloc-bar{display:flex;align-items:center;gap:10px;margin-bottom:1rem}
 .vloc-lbl{font-size:11px;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em}
 .vloc-tg .tgb{padding:8px 22px;font-size:13px}
+@keyframes vspin{to{transform:rotate(360deg)}}.vspin{display:inline-block;animation:vspin 1s linear infinite}
+.vsync-info{font-size:11px;color:var(--tx3);margin-left:auto}
+.pl-row{border:0.5px solid var(--br);border-radius:var(--r);padding:.85rem;margin-bottom:.75rem}
+.pl-row h4{font-size:13px;font-weight:500;margin-bottom:.6rem}
 @media (max-width:1100px){.vgrid2{grid-template-columns:1fr}.stats-grid{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
@@ -303,7 +307,9 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
         <span class="reader-tag" id="reader-tag"><i class="ti ti-eye" style="font-size:12px"></i> Solo lectura</span>
       </div>
       <div class="topbar-actions">
-        <button class="btn" onclick="exportExcel()"><i class="ti ti-download"></i> Exportar Excel</button>
+        <button class="btn btn-wine" id="btn-vsync" onclick="syncVinos()" style="display:none" title="Traer los datos actuales de las planillas de Google"><i class="ti ti-refresh" id="vsync-ico"></i> <span id="vsync-txt">Sincronizar</span></button>
+        <button class="btn" id="btn-vplan" onclick="openPlanillas()" style="display:none" title="Planillas de Google vinculadas"><i class="ti ti-table"></i> Planillas</button>
+        <button class="btn" id="btn-export" onclick="exportExcel()"><i class="ti ti-download"></i> Exportar Excel</button>
         <button class="btn" id="btn-prov" onclick="openModal('prov')"><i class="ti ti-plus"></i> Proveedor</button>
         <button class="btn btn-wine" id="btn-boleta" onclick="openModal('boleta')"><i class="ti ti-plus"></i> Nueva boleta</button>
       </div>
@@ -516,7 +522,7 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
           <div class="card">
             <div class="card-header">
               <span class="card-title">Mercadería por</span>
-              <select class="fsel" id="vr-grp" onchange="renderVResumen()"><option value="tipo">Tipo de vino</option><option value="bodega">Bodega</option><option value="proveedor">Proveedor</option><option value="varietal">Varietal</option></select>
+              <select class="fsel" id="vr-grp" onchange="renderVResumen()"><option value="tipo">Tipo de vino</option><option value="bodega">Bodega</option><option value="proveedor">Proveedor</option><option value="varietal">Varietal</option><option value="region">Región</option></select>
             </div>
             <div class="tw"><table><thead><tr><th>Grupo</th><th style="text-align:right">Botellas</th><th style="text-align:right">Valor costo</th><th style="width:35%">%</th></tr></thead><tbody id="vr-grp-t"></tbody></table></div>
           </div>
@@ -599,6 +605,7 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
       <div class="fg"><label>Bodega</label><input type="text" id="v-bod" list="dl-bodegas" placeholder="Ej: Catena Zapata"></div>
       <div class="fg"><label>Varietal</label><input type="text" id="v-var" list="dl-varietales" placeholder="Ej: Malbec"></div>
       <div class="fg"><label>Añada</label><input type="text" id="v-ana" placeholder="2022"></div>
+      <div class="fg"><label>Región</label><input type="text" id="v-reg" placeholder="Valle de Uco"></div>
       <div class="fg"><label>Tipo</label>
         <select id="v-tip"><option>Tinto</option><option>Blanco</option><option>Rosado</option><option>Espumante</option><option>Naranjo</option><option>Dulce</option><option>Otro</option></select>
       </div>
@@ -619,6 +626,23 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
 </div>
 </div>
 <datalist id="dl-bodegas"></datalist><datalist id="dl-varietales"></datalist>
+
+<!-- MODAL PLANILLAS -->
+<div class="overlay" id="modal-planillas">
+<div class="modal" style="width:640px">
+  <div class="mhead"><span class="mtitle">Planillas de Google vinculadas</span><button class="ab" onclick="closeModal('planillas')"><i class="ti ti-x"></i></button></div>
+  <div class="mbody">
+    <p style="font-size:12px;color:var(--tx2);margin-bottom:.75rem">Pegá el link de cada planilla (con la pestaña abierta). Cada una tiene que estar compartida como <b>Lector</b> con esta cuenta:</p>
+    <div class="ck-box" style="margin-bottom:1rem"><div style="display:flex;gap:8px;align-items:center"><code id="pl-sa" style="font-size:12px;flex:1;word-break:break-all"></code><button class="btn btn-sm" onclick="copySA()"><i class="ti ti-copy"></i> Copiar</button></div></div>
+    <div id="pl-rows"></div>
+    <p style="font-size:11px;color:var(--tx3)"><b>Catálogo</b>: la planilla de vinos del local (A tipo, C etiqueta, D cepa, F bodega, H región, I distribuidor, L costo, N precio carta).<br><b>Stock</b>: la que completa el encargado. Bajá el modelo con el botón de cada local, subilo a Drive, compartilo con el encargado y con la cuenta de arriba, y pegá el link acá.</p>
+  </div>
+  <div class="mfoot">
+    <button class="btn" onclick="closeModal('planillas')">Cancelar</button>
+    <button class="btn btn-wine" onclick="savePlanillas()"><i class="ti ti-check"></i> Guardar</button>
+  </div>
+</div>
+</div>
 
 <!-- MODAL MOVIMIENTO -->
 <div class="overlay" id="modal-mov">
@@ -1034,7 +1058,7 @@ function nav(n,btn){
   if(n==='historial'){popHistSel();renderHistorial();}
   if(n==='alertas')renderAlerts();
   if(n==='cheques')renderCheques();
-  if(n==='vresumen'||n==='vstock'||n==='vmov')renderVinosAll();
+  if(n==='vresumen'||n==='vstock'||n==='vmov')renderVinosAll();else updVTopbar();
 }
 function goLocal(lc,btn){
   document.querySelectorAll('.lnb').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
@@ -1556,7 +1580,15 @@ const VLOCALES = ['Wheelwright','Pichincha'];
 let vLocal = (()=>{try{return localStorage.getItem('vinito_vlocal')||'Wheelwright'}catch(e){return 'Wheelwright'}})();
 if(!VLOCALES.includes(vLocal))vLocal='Wheelwright';
 function setVLocal(l){vLocal=l;try{localStorage.setItem('vinito_vlocal',l)}catch(e){}renderVinosAll();}
+function updVTopbar(){
+  const enV=['view-vresumen','view-vstock','view-vmov'].some(id=>$f(id)&&$f(id).classList.contains('active'));
+  const puede=role==='admin'||role==='socio';
+  $f('btn-vsync').style.display=enV&&puede?'':'none';
+  $f('btn-vplan').style.display=enV&&role==='admin'?'':'none';
+  ['btn-export','btn-prov','btn-boleta'].forEach(id=>{const e=$f(id);if(!e)return;if(enV)e.dataset.hid='1',e.style.display='none';else if(e.dataset.hid){delete e.dataset.hid;e.style.display=(id==='btn-export'||isA())?'':'none';}});
+}
 function paintVLocal(){
+  updVTopbar();
   document.querySelectorAll('.vloc-tg .tgb').forEach(b=>b.classList.toggle('on',b.dataset.l===vLocal));
   const t=$f('page-title');if(t&&/^Vinos · /.test(t.textContent))t.textContent=t.textContent.split(' — ')[0]+' — '+vLocal;
 }
@@ -1574,11 +1606,12 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;',
 function sku(id){return 'V'+String(id).padStart(4,'0')}
 function nq(n){const r=Math.round(n*10)/10;return r.toLocaleString('es-AR')}
 function mapVino(r){return {id:r.id,nom:r.nombre,bod:r.bodega||'',var:r.varietal||'',ana:r.anada||'',tipo:r.tipo||'',prov:r.proveedor||'',
-  costo:Number(r.costo)||0,pb:Number(r.precio_botella)||0,pc:Number(r.precio_copa)||0,cpb:Number(r.copas_por_botella)||5,min:Number(r.stock_minimo)||0,act:r.activo!==false};}
+  reg:r.region||'',locs:new Set(),costo:Number(r.costo)||0,pb:Number(r.precio_botella)||0,pc:Number(r.precio_copa)||0,cpb:Number(r.copas_por_botella)||5,min:Number(r.stock_minimo)||0,act:r.activo!==false};}
 function mapVMov(r){return {id:r.id,vid:r.vino_id,local:r.local,tipo:r.tipo,cant:Number(r.cantidad)||0,costo:Number(r.costo_unit)||0,
   precio:r.precio_unit==null?null:Number(r.precio_unit),fecha:r.fecha,nota:r.nota||'',grupo:r.grupo||null};}
 async function loadVinos(){
-  try{const d=await api('/vinos/state');vinos=d.vinos.map(mapVino);vmovs=d.movimientos.map(mapVMov);}
+  try{const d=await api('/vinos/state');vinos=d.vinos.map(mapVino);vmovs=d.movimientos.map(mapVMov);
+    const byId=new Map(vinos.map(v=>[v.id,v]));(d.vinoLocales||[]).forEach(x=>{const v=byId.get(x.vino_id);if(v)v.locs.add(x.local)});}
   catch(e){console.warn('Vinos no disponibles:',e.message);}
 }
 function vinoById(id){return vinos.find(v=>v.id===id)}
@@ -1588,6 +1621,8 @@ function stockMap(){
   vmovs.forEach(x=>{if(!m[x.vid])m[x.vid]={Wheelwright:0,Pichincha:0};m[x.vid][x.local]=(m[x.vid][x.local]||0)+x.cant;});
   return m;
 }
+// un vino "es" del local si figura en su carta/planilla o si tiene stock ahí
+function enLocal(v,sm,loc){return v.locs.has(loc)||stockDe(sm,v.id,loc)!==0}
 function stockDe(sm,id,local){const s=sm[id]||{};return local?(s[local]||0):VLOCALES.reduce((a,l)=>a+(s[l]||0),0)}
 function uniq(arr){return [...new Set(arr.filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'))}
 function fillSel(id,vals,first){const el=$f(id);if(!el)return;const cur=el.value;el.innerHTML=`<option value="">${first}</option>`+vals.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');if(vals.includes(cur))el.value=cur;}
@@ -1622,9 +1657,9 @@ function renderVResumen(){
   const loc=vLocal,tp=$f('vr-tipo').value,bo=$f('vr-bodega').value,pr=$f('vr-prov').value;
   const per=vPeriodo();
   $f('vr-per-lbl').textContent=per.l+' · '+loc;
-  const okV=v=>(!tp||v.tipo===tp)&&(!bo||v.bod===bo)&&(!pr||v.prov===pr);
-  const vs=vinos.filter(okV),ids=new Set(vs.map(v=>v.id));
   const sm=stockMap();
+  const okV=v=>enLocal(v,sm,loc)&&(!tp||v.tipo===tp)&&(!bo||v.bod===bo)&&(!pr||v.prov===pr);
+  const vs=vinos.filter(okV),ids=new Set(vs.map(v=>v.id));
   // stock actual
   let vc=0,vv=0,bt=0,bm=0,refs=0;
   vs.forEach(v=>{const s=stockDe(sm,v.id,loc);if(s>0){vc+=s*v.costo;vv+=s*v.pb;bt+=s;refs++;}
@@ -1658,7 +1693,7 @@ function renderVResumen(){
   const g=$f('vr-grp').value,grp={};
   vs.forEach(v=>{
     const s=stockDe(sm,v.id,loc);if(s<=0)return;
-    const k=(g==='tipo'?v.tipo:g==='bodega'?v.bod:g==='proveedor'?v.prov:v.var)||'Sin dato';
+    const k=(g==='tipo'?v.tipo:g==='bodega'?v.bod:g==='proveedor'?v.prov:g==='region'?v.reg:v.var)||'Sin dato';
     const r=grp[k]||(grp[k]={b:0,v:0});r.b+=s;r.v+=s*v.costo;
   });
   const tot=Object.values(grp).reduce((a,r)=>a+r.v,0)||1;
@@ -1680,6 +1715,7 @@ function vStockRows(){
   const q=$f('vs-q').value.toLowerCase(),loc=vLocal,tp=$f('vs-tipo').value,bo=$f('vs-bodega').value,es=$f('vs-est').value;
   const sm=stockMap();
   return {sm,loc,rows:vinos.filter(v=>{
+    if(!enLocal(v,sm,loc))return false;
     if(es==='inact'?v.act:!v.act)return false;
     if(q&&!(v.nom+' '+v.bod+' '+v.var+' '+v.ana+' '+sku(v.id)).toLowerCase().includes(q))return false;
     if(tp&&v.tipo!==tp)return false;if(bo&&v.bod!==bo)return false;
@@ -1745,7 +1781,7 @@ function openVino(id){
   const v=id?vinoById(id):null;editingVinoId=v?v.id:null;
   $f('vino-modal-title').textContent=v?'Editar vino · '+sku(v.id):'Nuevo vino';
   $f('v-prov').innerHTML='<option value="">—</option>'+proveedores.map(p=>`<option value="${esc(p.n)}">${esc(p.n)}</option>`).join('');
-  $f('v-nom').value=v?v.nom:'';$f('v-bod').value=v?v.bod:'';$f('v-var').value=v?v.var:'';$f('v-ana').value=v?v.ana:'';
+  $f('v-nom').value=v?v.nom:'';$f('v-bod').value=v?v.bod:'';$f('v-var').value=v?v.var:'';$f('v-ana').value=v?v.ana:'';$f('v-reg').value=v?v.reg:'';
   $f('v-tip').value=v&&v.tipo?v.tipo:'Tinto';$f('v-prov').value=v?v.prov:'';
   if(v&&v.prov&&$f('v-prov').value!==v.prov){$f('v-prov').insertAdjacentHTML('beforeend',`<option>${esc(v.prov)}</option>`);$f('v-prov').value=v.prov;}
   $f('v-cos').value=v?v.costo:'';$f('v-pb').value=v?v.pb:'';$f('v-pc').value=v?v.pc:'';$f('v-cpb').value=v?v.cpb:5;$f('v-min').value=v?v.min:0;$f('v-act').value=!v||v.act?'1':'0';
@@ -1753,7 +1789,7 @@ function openVino(id){
   $f('modal-vino').classList.add('open');setTimeout(()=>$f('v-nom').focus(),80);
 }
 async function saveVino(){
-  const body={nombre:$f('v-nom').value.trim(),bodega:$f('v-bod').value.trim(),varietal:$f('v-var').value.trim(),anada:$f('v-ana').value.trim(),
+  const body={nombre:$f('v-nom').value.trim(),bodega:$f('v-bod').value.trim(),varietal:$f('v-var').value.trim(),anada:$f('v-ana').value.trim(),region:$f('v-reg').value.trim(),local:vLocal,
     tipo:$f('v-tip').value,proveedor:$f('v-prov').value,costo:$f('v-cos').value,precioBotella:$f('v-pb').value,precioCopa:$f('v-pc').value,
     copasPorBotella:$f('v-cpb').value,stockMinimo:$f('v-min').value,activo:$f('v-act').value==='1'};
   if(!body.nombre){toast('Ingresá el nombre del vino','warn');return;}
@@ -1771,7 +1807,11 @@ async function delVino(){
 }
 
 // ---------- MOVIMIENTO ----------
-function vinoOptions(sel){return '<option value="">Elegir vino...</option>'+vinos.filter(v=>v.act||v.id===sel).map(v=>`<option value="${v.id}" ${v.id===sel?'selected':''}>${esc(vLabel(v))}</option>`).join('')}
+function vinoOptions(sel){
+  const sm=stockMap(),opt=v=>`<option value="${v.id}" ${v.id===sel?'selected':''}>${esc(vLabel(v))}</option>`;
+  const act=vinos.filter(v=>v.act||v.id===sel),mios=act.filter(v=>enLocal(v,sm,vLocal)),otros=act.filter(v=>!enLocal(v,sm,vLocal));
+  return '<option value="">Elegir vino...</option>'+`<optgroup label="${vLocal}">`+mios.map(opt).join('')+'</optgroup>'+(otros.length?'<optgroup label="Otros vinos del catálogo">'+otros.map(opt).join('')+'</optgroup>':'');
+}
 function addMovItem(vid){
   const d=document.createElement('div');d.className='vm-item';
   d.innerHTML=`<select class="m-v">${vinoOptions(vid||null)}</select><input type="number" class="m-c" placeholder="Botellas" step="1"><button class="ab" title="Quitar" onclick="this.parentNode.remove()"><i class="ti ti-x"></i></button>`;
@@ -1806,7 +1846,7 @@ function openConteo(){
 }
 function renderConteo(){
   const loc=$f('c-local').value,q=$f('c-q').value.toLowerCase(),sm=stockMap();
-  const vs=vinos.filter(v=>v.act&&(!q||vLabel(v).toLowerCase().includes(q)));
+  const vs=vinos.filter(v=>v.act&&enLocal(v,sm,loc)&&(!q||vLabel(v).toLowerCase().includes(q)));
   $f('c-t').innerHTML=vs.map(v=>{const s=stockDe(sm,v.id,loc),k=v.id,val=conteoVals[k]??'';const dif=val===''?'':Number(val)-s;
     return `<tr><td><div class="fw5" style="font-size:12px">${esc(v.nom)}</div><div style="font-size:10px;color:var(--tx3)">${esc([v.bod,v.ana].filter(Boolean).join(' · '))}</div></td>
       <td style="text-align:right">${nq(s)}</td>
@@ -1820,6 +1860,52 @@ async function saveConteo(){
   try{const r=await api('/vinos/conteo',{method:'POST',body:JSON.stringify({local:$f('c-local').value,fecha:$f('c-fecha').value,items})});
     closeModal('conteo');await loadVinos();renderVinosAll();toast(`Conteo guardado: ${r.contados} vinos, ${r.ajustes} ajuste${r.ajustes!==1?'s':''}`,'ok');}
   catch(e){toast(e.message,'err');}
+}
+
+// ---------- SINCRONIZAR CON GOOGLE SHEETS ----------
+let vSyncing=false;
+async function syncVinos(){
+  if(vSyncing)return;vSyncing=true;
+  const ico=$f('vsync-ico'),txt=$f('vsync-txt'),b=$f('btn-vsync');
+  ico.classList.add('vspin');txt.textContent='Sincronizando '+vLocal+'…';b.disabled=true;
+  try{
+    const r=await api('/vinos/sync',{method:'POST',body:JSON.stringify({local:vLocal})});
+    await loadVinos();renderVinosAll();
+    const p=[];
+    if(r.catalogo)p.push(`${r.catalogo.leidos} vinos en la carta (${r.catalogo.creados} nuevos)`);
+    if(r.stock)p.push(`stock: ${r.stock.filas} contados, ${r.stock.ajustes} ajustes`);
+    toast(vLocal+' sincronizado · '+p.join(' · '),'ok');
+    if(r.stock&&r.stock.noEncontrados.length)setTimeout(()=>toast(`${r.stock.noEncontrados.length} filas de la planilla de stock no coinciden con ningún vino: ${r.stock.noEncontrados.slice(0,3).join(', ')}…`,'warn'),3400);
+    if(!r.stock&&isA())setTimeout(()=>toast('Falta vincular la planilla de stock de '+vLocal+' (botón Planillas)','info'),3400);
+  }catch(e){toast(e.message,'err');}
+  finally{vSyncing=false;ico.classList.remove('vspin');txt.textContent='Sincronizar';b.disabled=false;}
+}
+let plData=null;
+async function openPlanillas(){
+  if(!isA())return;
+  try{plData=await api('/vinos-planillas');}catch(e){toast(e.message,'err');return;}
+  $f('pl-sa').textContent=plData.serviceAccount||'⚠ Falta configurar GOOGLE_CREDENTIALS en Railway';
+  const get=(l,t)=>(plData.planillas.find(p=>p.local===l&&p.tipo===t)||{});
+  $f('pl-rows').innerHTML=VLOCALES.map(l=>{const c=get(l,'catalogo'),s=get(l,'stock'),u=c.ultima_sync||s.ultima_sync;
+    return `<div class="pl-row"><h4>${l}${u?` <span style="font-weight:400;font-size:11px;color:var(--tx3)">· última sincronización ${new Date(u).toLocaleString('es-AR')}</span>`:''}</h4>
+      <div class="fg2"><div class="fg full"><label>Planilla de catálogo (vinos, costos)</label><input type="text" data-l="${l}" data-t="catalogo" value="${esc(c.url||'')}" placeholder="https://docs.google.com/spreadsheets/d/..."></div>
+      <div class="fg full"><label>Planilla de stock (la carga el encargado)</label><input type="text" data-l="${l}" data-t="stock" value="${esc(s.url||'')}" placeholder="https://docs.google.com/spreadsheets/d/..."></div></div>
+      <button class="btn btn-sm" style="margin-top:8px" onclick="exportPlanillaStock('${l}')"><i class="ti ti-download"></i> Bajar modelo de planilla de stock · ${l}</button></div>`;}).join('');
+  $f('modal-planillas').classList.add('open');
+}
+function copySA(){const t=$f('pl-sa').textContent;try{navigator.clipboard.writeText(t);toast('Email copiado','ok');}catch(e){}}
+async function savePlanillas(){
+  const planillas=[...document.querySelectorAll('#pl-rows input[data-l]')].map(i=>({local:i.dataset.l,tipo:i.dataset.t,url:i.value.trim()}));
+  try{await api('/vinos-planillas',{method:'PUT',body:JSON.stringify({planillas})});closeModal('planillas');toast('Planillas guardadas','ok');}catch(e){toast(e.message,'err');}
+}
+function exportPlanillaStock(loc){
+  if(typeof XLSX==='undefined'){toast('Librería no cargada, intentá de nuevo','warn');return;}
+  const sm=stockMap();
+  const vs=vinos.filter(v=>v.act&&enLocal(v,sm,loc)).sort((a,b)=>(a.tipo+a.bod+a.nom).localeCompare(b.tipo+b.bod+b.nom,'es'));
+  const rows=[['SKU','TIPO','ETIQUETA','CEPA','BODEGA','STOCK'],...vs.map(v=>[sku(v.id),v.tipo,v.nom,v.var,v.bod,''])];
+  const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:8},{wch:11},{wch:38},{wch:20},{wch:24},{wch:9}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Stock');
+  XLSX.writeFile(wb,`STOCK_VINOS_${loc.toUpperCase()}.xlsx`);toast('Modelo descargado: completá la columna STOCK','ok');
 }
 
 // ---------- EXPORTAR STOCK ----------
