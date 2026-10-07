@@ -394,7 +394,8 @@ app.put('/api/email-config', requireAdmin, async (req, res) => {
 // Así el día que el sistema de ventas descuente solo, alcanza con que
 // inserte movimientos de tipo 'venta' o 'copa'.
 // =====================================================================
-const LOCALES_VINO = ['Centro', 'Pichincha'];
+// Cada local maneja su propio stock de vinos.
+const LOCALES_VINO = ['Wheelwright', 'Pichincha'];
 // signo que aplica cada tipo sobre la cantidad que se carga (siempre positiva)
 const SIGNO_MOV = { ingreso: 1, venta: -1, copa: -1, rotura: -1, consumo: -1, devolucion: -1 };
 
@@ -433,6 +434,7 @@ async function initVinos() {
     );
     CREATE INDEX IF NOT EXISTS idx_vmov_vino ON vino_movimientos(vino_id);
     CREATE INDEX IF NOT EXISTS idx_vmov_fecha ON vino_movimientos(fecha);
+    UPDATE vino_movimientos SET local='Wheelwright' WHERE local='Centro';
   `);
 }
 initVinos().catch((err) => console.error('Error creando tablas de vinos:', err));
