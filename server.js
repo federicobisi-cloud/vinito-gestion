@@ -662,7 +662,7 @@ app.post('/api/vinos/conteo', requireAdmin, async (req, res) => {
 // (variable GOOGLE_CREDENTIALS). Cada planilla tiene que estar compartida
 // con el email de esa cuenta (solo lectura alcanza).
 //  · 'catalogo': la planilla de vinos del local. Columnas: A tipo, C etiqueta,
-//    D cepa, F bodega, H región, I distribuidor, L costo, N precio carta.
+//    D cepa, F bodega, H región, I distribuidor (en Wheelwright: G), L costo, N precio carta.
 //  · 'stock': la planilla que completa el encargado. Necesita una columna
 //    SKU (o ETIQUETA/CEPA/BODEGA) y una columna STOCK con las botellas contadas.
 // =====================================================================
@@ -705,7 +705,7 @@ async function leerHoja(url) {
   }
   const hojas = meta.data.sheets.map((s) => s.properties);
   const hoja = (gid != null && hojas.find((h) => h.sheetId === gid)) || hojas[0];
-  const r = await sheets.spreadsheets.values.get({ spreadsheetId: id, range: `'${hoja.title.replace(/'/g, "''")}'!A1:Z3000` });
+  const r = await sheets.spreadsheets.values.get({ spreadsheetId: id, range: `'${hoja.title.replace(/'/g, "''")}'!A:Z` }); // sin límite de filas
   return r.data.values || [];
 }
 function norm(s) {
@@ -739,7 +739,8 @@ async function syncCatalogo(client, local, url) {
     const cepa = (f[3] || '').trim() || null;
     const bodega = (f[5] || '').trim() || null;
     const region = (f[7] || '').trim() || null;
-    const proveedor = (f[8] || '').trim() || null;
+    // proveedor: en la planilla de Wheelwright está en la columna G; en Pichincha en la I
+    const proveedor = String((local === 'Wheelwright' ? (f[6] || f[8]) : f[8]) || '').trim() || null;
     const costo = plata(f[11]);
     const precio = plata(f[13]);
     const clave = claveVino(etiqueta, cepa, bodega);
