@@ -290,7 +290,7 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
     <button class="nav-item" onclick="nav('cheques',this)"><i class="ti ti-writing"></i><span>Cheques</span></button>
     <button class="nav-item" onclick="nav('proveedores',this)"><i class="ti ti-truck"></i><span>Proveedores</span></button>
     <button class="nav-item" onclick="nav('historial',this)"><i class="ti ti-history"></i><span>Historial</span></button>
-    <span class="nav-sec">Vinos</span>
+    <span class="nav-sec" id="nav-sec-vinos">Vinos</span>
     <button class="nav-item" onclick="nav('vresumen',this)" id="nav-vresumen"><i class="ti ti-chart-bar"></i><span>Resumen</span></button>
     <button class="nav-item" onclick="nav('vstock',this)" id="nav-vstock"><i class="ti ti-bottle"></i><span>Stock</span></button>
     <button class="nav-item" onclick="nav('vmov',this)" id="nav-vmov"><i class="ti ti-arrows-exchange"></i><span>Movimientos</span></button>
@@ -1616,6 +1616,10 @@ function mapVino(r){return {id:r.id,nom:r.nombre,bod:r.bodega||'',var:r.varietal
 function mapVMov(r){return {id:r.id,vid:r.vino_id,local:r.local,tipo:r.tipo,cant:Number(r.cantidad)||0,costo:Number(r.costo_unit)||0,
   precio:r.precio_unit==null?null:Number(r.precio_unit),fecha:r.fecha,nota:r.nota||'',grupo:r.grupo||null};}
 async function loadVinos(){
+  // el usuario Lector no ve el stock de vinos
+  const okV=role==='admin'||role==='socio';
+  ['nav-sec-vinos','nav-vresumen','nav-vstock','nav-vmov'].forEach(id=>{const e=$f(id);if(e)e.style.display=okV?'':'none'});
+  if(!okV){vinos=[];vmovs=[];return;}
   try{const d=await api('/vinos/state');vinos=d.vinos.map(mapVino);vmovs=d.movimientos.map(mapVMov);
     const byId=new Map(vinos.map(v=>[v.id,v]));(d.vinoLocales||[]).forEach(x=>{const v=byId.get(x.vino_id);if(v)v.locs.add(x.local)});}
   catch(e){console.warn('Vinos no disponibles:',e.message);}
