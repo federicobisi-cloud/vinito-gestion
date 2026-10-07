@@ -20,6 +20,9 @@ const pool = new Pool({
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'vinito2025';
 const READER_PASSWORD = process.env.READER_PASSWORD || 'lector123';
+// Sin SOCIO_PASSWORD configurada en Railway el usuario Socio queda deshabilitado
+// (el repo es público, así que no dejamos una contraseña por defecto).
+const SOCIO_PASSWORD = process.env.SOCIO_PASSWORD || null;
 
 app.use(express.json());
 app.use(
@@ -60,6 +63,10 @@ app.post('/api/auth/login', (req, res) => {
   if (user === 'reader' && password === READER_PASSWORD) {
     req.session.role = 'reader';
     return res.json({ role: 'reader' });
+  }
+  if (user === 'socio' && SOCIO_PASSWORD && password === SOCIO_PASSWORD) {
+    req.session.role = 'socio';
+    return res.json({ role: 'socio' });
   }
   return res.status(401).json({ error: 'Contraseña incorrecta' });
 });
@@ -375,6 +382,241 @@ app.put('/api/email-config', requireAdmin, async (req, res) => {
     await client.query('ROLLBACK');
     console.error(err);
     res.status(500).json({ error: 'Error al guardar la configuración' });
+  } finally {
+    client.release();
+  }
+});
+
+// =====================================================================
+// ---------- VINOS: catálogo, movimientos de stock y conteos ----------
+// El stock NO se guarda como un número: es la suma de los movimientos
+// (ingresos +, ventas/copas/roturas/consumo/devoluciones −, ajustes ±).
+// Así el día que el sistema de ventas descuente solo, alcanza con que
+// inserte movimientos de tipo 'venta' o 'copa'.
+// =====================================================================
+const LOCALES_VINO = ['Centro', 'Pichincha'];
+// signo que aplica cada tipo sobre la cantidad que se carga (siempre positiva)
+const SIGNO_MOV = { ingreso: 1, venta: -1, copa: -1, rotura: -1, consumo: -1, devolucion: -1 };
+
+async function initVinos() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS vinos (
+      id                SERIAL PRIMARY KEY,
+      nombre            TEXT NOT NULL,
+      bodega            TEXT,
+      varietal          TEXT,
+      anada             TEXT,
+      tipo              TEXT,
+      proveedor         TEXT,
+      costo             NUMERIC DEFAULT 0,
+      precio_botella    NUMERIC DEFAULT 0,
+      precio_copa       NUMERIC DEFAULT 0,
+      copas_por_botella NUMERIC DEFAULT 5,
+      stock_minimo      NUMERIC DEFAULT 0,
+      activo            BOOLEAN DEFAULT true,
+      created_at        TIMESTAMPTZ DEFAULT now(),
+      updated_at        TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS vino_movimientos (
+      id          SERIAL PRIMARY KEY,
+      vino_id     INTEGER NOT NULL REFERENCES vinos(id) ON DELETE CASCADE,
+      local       TEXT NOT NULL,
+      tipo        TEXT NOT NULL,
+      cantidad    NUMERIC NOT NULL,
+      costo_unit  NUMERIC,
+      precio_unit NUMERIC,
+      fecha       DATE NOT NULL DEFAULT CURRENT_DATE,
+      nota        TEXT,
+      grupo       TEXT,
+      usuario     TEXT,
+      created_at  TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_vmov_vino ON vino_movimientos(vino_id);
+    CREATE INDEX IF NOT EXISTS idx_vmov_fecha ON vino_movimientos(fecha);
+  `);
+}
+initVinos().catch((err) => console.error('Error creando tablas de vinos:', err));
+
+function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+function precioVentaPorBotella(vino, tipo) {
+  if (tipo === 'venta') return num(vino.precio_botella);
+  if (tipo === 'copa') return num(vino.precio_copa) * (num(vino.copas_por_botella) || 1);
+  return null;
+}
+function vinoParams(b) {
+  return [
+    (b.nombre || '').trim(), b.bodega || null, b.varietal || null, b.anada || null, b.tipo || null,
+    b.proveedor || null, num(b.costo), num(b.precioBotella), num(b.precioCopa),
+    num(b.copasPorBotella) || 5, num(b.stockMinimo), b.activo !== false,
+  ];
+}
+
+app.get('/api/vinos/state', requireAuth, async (req, res) => {
+  try {
+    const [vinos, movs] = await Promise.all([
+      pool.query('SELECT * FROM vinos ORDER BY nombre ASC'),
+      pool.query(`SELECT id, vino_id, local, tipo, cantidad, costo_unit, precio_unit,
+                         to_char(fecha,'YYYY-MM-DD') AS fecha, nota, grupo, usuario
+                  FROM vino_movimientos ORDER BY fecha DESC, id DESC`),
+    ]);
+    res.json({ vinos: vinos.rows, movimientos: movs.rows, locales: LOCALES_VINO });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al cargar los vinos' });
+  }
+});
+
+app.post('/api/vinos', requireAdmin, async (req, res) => {
+  if (!req.body.nombre || !req.body.nombre.trim()) return res.status(400).json({ error: 'Ingresá el nombre del vino' });
+  try {
+    const r = await pool.query(
+      `INSERT INTO vinos (nombre, bodega, varietal, anada, tipo, proveedor, costo, precio_botella, precio_copa, copas_por_botella, stock_minimo, activo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      vinoParams(req.body)
+    );
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al guardar el vino' });
+  }
+});
+
+app.put('/api/vinos/:id', requireAdmin, async (req, res) => {
+  if (!req.body.nombre || !req.body.nombre.trim()) return res.status(400).json({ error: 'Ingresá el nombre del vino' });
+  try {
+    const r = await pool.query(
+      `UPDATE vinos SET nombre=$1, bodega=$2, varietal=$3, anada=$4, tipo=$5, proveedor=$6, costo=$7,
+         precio_botella=$8, precio_copa=$9, copas_por_botella=$10, stock_minimo=$11, activo=$12, updated_at=now()
+       WHERE id=$13 RETURNING *`,
+      [...vinoParams(req.body), req.params.id]
+    );
+    if (!r.rows[0]) return res.status(404).json({ error: 'Vino no encontrado' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al actualizar el vino' });
+  }
+});
+
+// Solo se puede borrar un vino sin movimientos; si ya tuvo, se desactiva.
+app.delete('/api/vinos/:id', requireAdmin, async (req, res) => {
+  try {
+    const m = await pool.query('SELECT COUNT(*)::int AS n FROM vino_movimientos WHERE vino_id=$1', [req.params.id]);
+    if (m.rows[0].n > 0) {
+      await pool.query('UPDATE vinos SET activo=false, updated_at=now() WHERE id=$1', [req.params.id]);
+      return res.json({ ok: true, desactivado: true });
+    }
+    await pool.query('DELETE FROM vinos WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al eliminar el vino' });
+  }
+});
+
+// Carga de movimientos. Body: { tipo, local, localDestino?, fecha, nota, items: [{ vinoId, cantidad }] }
+app.post('/api/vinos/movimientos', requireAdmin, async (req, res) => {
+  const { tipo, local, localDestino, fecha, nota } = req.body;
+  const items = Array.isArray(req.body.items) ? req.body.items.filter((i) => i && i.vinoId && num(i.cantidad) !== 0) : [];
+  const validos = [...Object.keys(SIGNO_MOV), 'ajuste', 'transferencia'];
+  if (!validos.includes(tipo)) return res.status(400).json({ error: 'Tipo de movimiento inválido' });
+  if (!LOCALES_VINO.includes(local)) return res.status(400).json({ error: 'Elegí el local' });
+  if (tipo === 'transferencia' && (!LOCALES_VINO.includes(localDestino) || localDestino === local)) {
+    return res.status(400).json({ error: 'Elegí un local de destino distinto al de origen' });
+  }
+  if (!items.length) return res.status(400).json({ error: 'Cargá al menos un vino con cantidad' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const ids = items.map((i) => Number(i.vinoId));
+    const vr = await client.query('SELECT * FROM vinos WHERE id = ANY($1::int[])', [ids]);
+    const byId = Object.fromEntries(vr.rows.map((v) => [v.id, v]));
+    let creados = 0;
+    for (const it of items) {
+      const vino = byId[Number(it.vinoId)];
+      if (!vino) continue;
+      const cant = num(it.cantidad);
+      const grupo = tipo === 'transferencia' ? `tr-${Date.now()}-${vino.id}-${creados}` : null;
+      const rows = [];
+      if (tipo === 'ajuste') rows.push([local, cant]);
+      else if (tipo === 'transferencia') rows.push([local, -Math.abs(cant)], [localDestino, Math.abs(cant)]);
+      else rows.push([local, SIGNO_MOV[tipo] * Math.abs(cant)]);
+      for (const [lc, c] of rows) {
+        await client.query(
+          `INSERT INTO vino_movimientos (vino_id, local, tipo, cantidad, costo_unit, precio_unit, fecha, nota, grupo, usuario)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [vino.id, lc, tipo, c, num(vino.costo), precioVentaPorBotella(vino, tipo), fecha || new Date().toISOString().slice(0, 10),
+           nota || (tipo === 'transferencia' ? `Transferencia ${local} → ${localDestino}` : null), grupo, req.session.role]
+        );
+        creados++;
+      }
+    }
+    await client.query('COMMIT');
+    res.json({ ok: true, creados });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Error al guardar el movimiento' });
+  } finally {
+    client.release();
+  }
+});
+
+// Borra un movimiento (y su contraparte si era una transferencia).
+app.delete('/api/vinos/movimientos/:id', requireAdmin, async (req, res) => {
+  try {
+    const r = await pool.query('SELECT grupo FROM vino_movimientos WHERE id=$1', [req.params.id]);
+    if (!r.rows[0]) return res.status(404).json({ error: 'Movimiento no encontrado' });
+    if (r.rows[0].grupo) await pool.query('DELETE FROM vino_movimientos WHERE grupo=$1', [r.rows[0].grupo]);
+    else await pool.query('DELETE FROM vino_movimientos WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al eliminar el movimiento' });
+  }
+});
+
+// Conteo físico: compara lo contado con el stock del sistema y genera los ajustes.
+// Body: { local, fecha, items: [{ vinoId, contado }] }
+app.post('/api/vinos/conteo', requireAdmin, async (req, res) => {
+  const { local, fecha } = req.body;
+  const items = Array.isArray(req.body.items) ? req.body.items.filter((i) => i && i.vinoId && i.contado !== '' && i.contado != null) : [];
+  if (!LOCALES_VINO.includes(local)) return res.status(400).json({ error: 'Elegí el local' });
+  if (!items.length) return res.status(400).json({ error: 'No cargaste ninguna cantidad' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const ids = items.map((i) => Number(i.vinoId));
+    const vr = await client.query('SELECT * FROM vinos WHERE id = ANY($1::int[])', [ids]);
+    const byId = Object.fromEntries(vr.rows.map((v) => [v.id, v]));
+    const sr = await client.query(
+      'SELECT vino_id, COALESCE(SUM(cantidad),0) AS stock FROM vino_movimientos WHERE local=$1 AND vino_id = ANY($2::int[]) GROUP BY vino_id',
+      [local, ids]
+    );
+    const stock = Object.fromEntries(sr.rows.map((r) => [r.vino_id, num(r.stock)]));
+    let ajustes = 0;
+    for (const it of items) {
+      const vino = byId[Number(it.vinoId)];
+      if (!vino) continue;
+      const contado = num(it.contado);
+      const sistema = stock[vino.id] || 0;
+      const dif = contado - sistema;
+      if (dif === 0) continue;
+      await client.query(
+        `INSERT INTO vino_movimientos (vino_id, local, tipo, cantidad, costo_unit, fecha, nota, usuario)
+         VALUES ($1,$2,'ajuste',$3,$4,$5,$6,$7)`,
+        [vino.id, local, dif, num(vino.costo), fecha || new Date().toISOString().slice(0, 10),
+         `Conteo físico: contado ${contado}, sistema ${sistema}`, req.session.role]
+      );
+      ajustes++;
+    }
+    await client.query('COMMIT');
+    res.json({ ok: true, ajustes, contados: items.length });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Error al guardar el conteo' });
   } finally {
     client.release();
   }
