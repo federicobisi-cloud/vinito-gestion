@@ -206,6 +206,9 @@ textarea{resize:vertical;min-height:52px}
 tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
 #view-vresumen .fsel,#view-vstock .fsel,#view-vmov .fsel,#view-vresumen .card-header select,#view-vstock .sinp,#view-vmov .sinp{width:auto}
 #view-vstock .sinp,#view-vmov .sinp{width:220px}
+.vloc-bar{display:flex;align-items:center;gap:10px;margin-bottom:1rem}
+.vloc-lbl{font-size:11px;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em}
+.vloc-tg .tgb{padding:8px 22px;font-size:13px}
 @media (max-width:1100px){.vgrid2{grid-template-columns:1fr}.stats-grid{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
@@ -463,12 +466,12 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
 
       <!-- VINOS · RESUMEN -->
       <div class="view" id="view-vresumen">
+        <div class="vloc-bar"><span class="vloc-lbl">Local</span><div class="tg vloc-tg"><button type="button" class="tgb" data-l="Wheelwright" onclick="setVLocal('Wheelwright')">Wheelwright</button><button type="button" class="tgb" data-l="Pichincha" onclick="setVLocal('Pichincha')">Pichincha</button></div></div>
         <div class="card">
           <div class="card-header">
             <span class="card-title">Filtros</span>
             <div class="filters">
-              <select class="fsel" id="vr-local" onchange="renderVResumen()"><option value="">Todos los locales</option><option value="Centro">Centro</option><option value="Pichincha">Pichincha</option></select>
-              <select class="fsel" id="vr-per" onchange="onVPer()">
+                            <select class="fsel" id="vr-per" onchange="onVPer()">
                 <option value="7">Últimos 7 días</option>
                 <option value="30" selected>Últimos 30 días</option>
                 <option value="90">Últimos 90 días</option>
@@ -513,7 +516,7 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
           <div class="card">
             <div class="card-header">
               <span class="card-title">Mercadería por</span>
-              <select class="fsel" id="vr-grp" onchange="renderVResumen()"><option value="tipo">Tipo de vino</option><option value="bodega">Bodega</option><option value="proveedor">Proveedor</option><option value="varietal">Varietal</option><option value="local">Local</option></select>
+              <select class="fsel" id="vr-grp" onchange="renderVResumen()"><option value="tipo">Tipo de vino</option><option value="bodega">Bodega</option><option value="proveedor">Proveedor</option><option value="varietal">Varietal</option></select>
             </div>
             <div class="tw"><table><thead><tr><th>Grupo</th><th style="text-align:right">Botellas</th><th style="text-align:right">Valor costo</th><th style="width:35%">%</th></tr></thead><tbody id="vr-grp-t"></tbody></table></div>
           </div>
@@ -526,11 +529,11 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
 
       <!-- VINOS · STOCK -->
       <div class="view" id="view-vstock">
+        <div class="vloc-bar"><span class="vloc-lbl">Local</span><div class="tg vloc-tg"><button type="button" class="tgb" data-l="Wheelwright" onclick="setVLocal('Wheelwright')">Wheelwright</button><button type="button" class="tgb" data-l="Pichincha" onclick="setVLocal('Pichincha')">Pichincha</button></div></div>
         <div class="card">
           <div class="card-header">
             <div class="filters">
               <input class="sinp" placeholder="Buscar vino, bodega, varietal..." id="vs-q" oninput="renderVStock()">
-              <select class="fsel" id="vs-local" onchange="renderVStock()"><option value="">Todos los locales</option><option value="Centro">Centro</option><option value="Pichincha">Pichincha</option></select>
               <select class="fsel" id="vs-tipo" onchange="renderVStock()"><option value="">Todos los tipos</option></select>
               <select class="fsel" id="vs-bodega" onchange="renderVStock()"><option value="">Todas las bodegas</option></select>
               <select class="fsel" id="vs-est" onchange="renderVStock()">
@@ -544,10 +547,10 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
               <button class="btn btn-sm btn-wine vadm" onclick="openVino()"><i class="ti ti-plus"></i> Vino</button>
             </div>
           </div>
-          <div class="tw"><table style="min-width:980px">
+          <div class="tw"><table style="min-width:860px">
             <thead><tr>
               <th style="width:58px">SKU</th><th>Vino</th><th>Tipo</th>
-              <th style="text-align:right">Centro</th><th style="text-align:right">Pichincha</th><th style="text-align:right">Total</th><th style="text-align:right">Mín.</th>
+              <th style="text-align:right">Stock</th><th style="text-align:right">Mín.</th>
               <th style="text-align:right">Costo</th><th style="text-align:right">Valor costo</th><th style="text-align:right">Precio bot.</th><th style="text-align:right">Copa</th>
               <th style="width:80px" class="vadm">Acciones</th>
             </tr></thead>
@@ -559,11 +562,11 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
 
       <!-- VINOS · MOVIMIENTOS -->
       <div class="view" id="view-vmov">
+        <div class="vloc-bar"><span class="vloc-lbl">Local</span><div class="tg vloc-tg"><button type="button" class="tgb" data-l="Wheelwright" onclick="setVLocal('Wheelwright')">Wheelwright</button><button type="button" class="tgb" data-l="Pichincha" onclick="setVLocal('Pichincha')">Pichincha</button></div></div>
         <div class="card">
           <div class="card-header">
             <div class="filters">
               <input class="sinp" placeholder="Buscar vino o nota..." id="vm-q" oninput="renderVMov()">
-              <select class="fsel" id="vm-local" onchange="renderVMov()"><option value="">Todos los locales</option><option value="Centro">Centro</option><option value="Pichincha">Pichincha</option></select>
               <select class="fsel" id="vm-tipo" onchange="renderVMov()"><option value="">Todos los tipos</option></select>
               <input type="date" class="fsel" id="vm-desde" onchange="renderVMov()" style="width:auto" title="Desde">
               <input type="date" class="fsel" id="vm-hasta" onchange="renderVMov()" style="width:auto" title="Hasta">
@@ -604,7 +607,7 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
       <div class="fg"><label>Precio de venta botella ($)</label><input type="number" id="v-pb" min="0" step="0.01" placeholder="0"></div>
       <div class="fg"><label>Precio por copa ($)</label><input type="number" id="v-pc" min="0" step="0.01" placeholder="0"></div>
       <div class="fg"><label>Copas por botella</label><input type="number" id="v-cpb" min="1" step="1" value="5"></div>
-      <div class="fg"><label>Stock mínimo (botellas, total)</label><input type="number" id="v-min" min="0" step="1" value="0"></div>
+      <div class="fg"><label>Stock mínimo por local (botellas)</label><input type="number" id="v-min" min="0" step="1" value="0"></div>
       <div class="fg"><label>Estado</label><select id="v-act"><option value="1">Activo</option><option value="0">Inactivo (no se compra más)</option></select></div>
     </div>
   </div>
@@ -625,8 +628,8 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
     <div class="fg2">
       <div class="fg"><label>Tipo *</label><select id="m-tipo" onchange="onMovTipo()"></select></div>
       <div class="fg"><label>Fecha *</label><input type="date" id="m-fecha"></div>
-      <div class="fg"><label id="m-local-lbl">Local *</label><select id="m-local"><option>Centro</option><option>Pichincha</option></select></div>
-      <div class="fg" id="m-dest-row" style="display:none"><label>Local destino *</label><select id="m-dest"><option>Pichincha</option><option>Centro</option></select></div>
+      <div class="fg"><label id="m-local-lbl">Local *</label><select id="m-local" onchange="onMovTipo()"><option>Wheelwright</option><option>Pichincha</option></select></div>
+      <div class="fg" id="m-dest-row" style="display:none"><label>Local destino *</label><select id="m-dest"><option>Pichincha</option><option>Wheelwright</option></select></div>
       <div class="fg full"><div id="m-help" style="font-size:11px;color:var(--tx3)"></div></div>
     </div>
     <div class="shead">Vinos</div>
@@ -647,7 +650,7 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
   <div class="mhead"><span class="mtitle">Conteo físico de stock</span><button class="ab" onclick="closeModal('conteo')"><i class="ti ti-x"></i></button></div>
   <div class="mbody">
     <div class="fg2">
-      <div class="fg"><label>Local *</label><select id="c-local" onchange="renderConteo()"><option>Centro</option><option>Pichincha</option></select></div>
+      <div class="fg"><label>Local *</label><select id="c-local" onchange="renderConteo()"><option>Wheelwright</option><option>Pichincha</option></select></div>
       <div class="fg"><label>Fecha *</label><input type="date" id="c-fecha"></div>
       <div class="fg full"><input type="text" id="c-q" placeholder="Buscar vino..." oninput="renderConteo()"></div>
     </div>
@@ -1548,7 +1551,15 @@ let vinos = [];
 let vmovs = [];
 let editingVinoId = null;
 let conteoVals = {};
-const VLOCALES = ['Centro','Pichincha'];
+const VLOCALES = ['Wheelwright','Pichincha'];
+// Cada local maneja su stock por separado: todo el módulo trabaja sobre el local elegido.
+let vLocal = (()=>{try{return localStorage.getItem('vinito_vlocal')||'Wheelwright'}catch(e){return 'Wheelwright'}})();
+if(!VLOCALES.includes(vLocal))vLocal='Wheelwright';
+function setVLocal(l){vLocal=l;try{localStorage.setItem('vinito_vlocal',l)}catch(e){}renderVinosAll();}
+function paintVLocal(){
+  document.querySelectorAll('.vloc-tg .tgb').forEach(b=>b.classList.toggle('on',b.dataset.l===vLocal));
+  const t=$f('page-title');if(t&&/^Vinos · /.test(t.textContent))t.textContent=t.textContent.split(' — ')[0]+' — '+vLocal;
+}
 const VTIPOS = {
   ingreso:{l:'Ingreso',c:'b-p',h:'Llegó mercadería del proveedor. Suma stock.'},
   venta:{l:'Venta botella',c:'b-c',h:'Botella vendida entera. Resta stock.'},
@@ -1573,8 +1584,8 @@ async function loadVinos(){
 function vinoById(id){return vinos.find(v=>v.id===id)}
 function vLabel(v){return v.nom+(v.bod?' — '+v.bod:'')+(v.ana?' '+v.ana:'')}
 function stockMap(){
-  const m={};vinos.forEach(v=>{m[v.id]={Centro:0,Pichincha:0}});
-  vmovs.forEach(x=>{if(!m[x.vid])m[x.vid]={Centro:0,Pichincha:0};m[x.vid][x.local]=(m[x.vid][x.local]||0)+x.cant;});
+  const m={};vinos.forEach(v=>{m[v.id]={Wheelwright:0,Pichincha:0}});
+  vmovs.forEach(x=>{if(!m[x.vid])m[x.vid]={Wheelwright:0,Pichincha:0};m[x.vid][x.local]=(m[x.vid][x.local]||0)+x.cant;});
   return m;
 }
 function stockDe(sm,id,local){const s=sm[id]||{};return local?(s[local]||0):VLOCALES.reduce((a,l)=>a+(s[l]||0),0)}
@@ -1590,7 +1601,7 @@ function popVinoFilters(){
   $f('dl-varietales').innerHTML=uniq(vinos.map(v=>v.var)).map(b=>`<option value="${esc(b)}">`).join('');
   document.querySelectorAll('.vadm').forEach(e=>e.style.display=isA()?'':'none');
 }
-function renderVinosAll(){popVinoFilters();renderVResumen();renderVStock();renderVMov();}
+function renderVinosAll(){popVinoFilters();paintVLocal();renderVResumen();renderVStock();renderVMov();}
 
 // ---------- período ----------
 function onVPer(){$f('vr-custom').style.display=$f('vr-per').value==='custom'?'inline-flex':'none';renderVResumen();}
@@ -1608,19 +1619,19 @@ function enPer(f,per){return (!per.d||f>=per.d)&&(!per.h||f<=per.h)}
 // ---------- RESUMEN ----------
 function renderVResumen(){
   if(!$f('vr-top'))return;
-  const loc=$f('vr-local').value,tp=$f('vr-tipo').value,bo=$f('vr-bodega').value,pr=$f('vr-prov').value;
+  const loc=vLocal,tp=$f('vr-tipo').value,bo=$f('vr-bodega').value,pr=$f('vr-prov').value;
   const per=vPeriodo();
-  $f('vr-per-lbl').textContent=per.l+(loc?' · '+loc:'');
+  $f('vr-per-lbl').textContent=per.l+' · '+loc;
   const okV=v=>(!tp||v.tipo===tp)&&(!bo||v.bod===bo)&&(!pr||v.prov===pr);
   const vs=vinos.filter(okV),ids=new Set(vs.map(v=>v.id));
   const sm=stockMap();
   // stock actual
   let vc=0,vv=0,bt=0,bm=0,refs=0;
   vs.forEach(v=>{const s=stockDe(sm,v.id,loc);if(s>0){vc+=s*v.costo;vv+=s*v.pb;bt+=s;refs++;}
-    if(v.act&&v.min>0&&stockDe(sm,v.id,'')<v.min)bm++;});
+    if(v.act&&v.min>0&&stockDe(sm,v.id,loc)<v.min)bm++;});
   $f('vk-vc').textContent=fmt(vc);$f('vk-vc-s').textContent=refs+' etiqueta'+(refs!==1?'s':'')+' con stock';
   $f('vk-vv').textContent=fmt(vv);$f('vk-vv-s').textContent=vc>0?'markup '+nq(vv/vc)+'x':'';
-  $f('vk-bt').textContent=nq(bt);$f('vk-bt-s').textContent=loc||'ambos locales';
+  $f('vk-bt').textContent=nq(bt);$f('vk-bt-s').textContent=loc;
   $f('vk-bm').textContent=bm;$f('vk-bm-s').textContent=bm?'revisar reposición':'todo en orden';
   // período
   const ms=vmovs.filter(x=>ids.has(x.vid)&&(!loc||x.local===loc)&&enPer(x.fecha,per));
@@ -1646,10 +1657,9 @@ function renderVResumen(){
   // agrupación de mercadería
   const g=$f('vr-grp').value,grp={};
   vs.forEach(v=>{
-    const locs=g==='local'?VLOCALES.filter(l=>!loc||l===loc):[loc||''];
-    locs.forEach(l=>{const s=stockDe(sm,v.id,l);if(s<=0)return;
-      const k=g==='local'?l:(g==='tipo'?v.tipo:g==='bodega'?v.bod:g==='proveedor'?v.prov:v.var)||'Sin dato';
-      const r=grp[k]||(grp[k]={b:0,v:0});r.b+=s;r.v+=s*v.costo;});
+    const s=stockDe(sm,v.id,loc);if(s<=0)return;
+    const k=(g==='tipo'?v.tipo:g==='bodega'?v.bod:g==='proveedor'?v.prov:v.var)||'Sin dato';
+    const r=grp[k]||(grp[k]={b:0,v:0});r.b+=s;r.v+=s*v.costo;
   });
   const tot=Object.values(grp).reduce((a,r)=>a+r.v,0)||1;
   $f('vr-grp-t').innerHTML=Object.entries(grp).sort((a,b)=>b[1].v-a[1].v).map(([k,r])=>`<tr><td class="fw5">${esc(k)}</td><td style="text-align:right">${nq(r.b)}</td><td style="text-align:right">${fmt(r.v)}</td>
@@ -1667,14 +1677,14 @@ function renderVResumen(){
 
 // ---------- STOCK ----------
 function vStockRows(){
-  const q=$f('vs-q').value.toLowerCase(),loc=$f('vs-local').value,tp=$f('vs-tipo').value,bo=$f('vs-bodega').value,es=$f('vs-est').value;
+  const q=$f('vs-q').value.toLowerCase(),loc=vLocal,tp=$f('vs-tipo').value,bo=$f('vs-bodega').value,es=$f('vs-est').value;
   const sm=stockMap();
   return {sm,loc,rows:vinos.filter(v=>{
     if(es==='inact'?v.act:!v.act)return false;
     if(q&&!(v.nom+' '+v.bod+' '+v.var+' '+v.ana+' '+sku(v.id)).toLowerCase().includes(q))return false;
     if(tp&&v.tipo!==tp)return false;if(bo&&v.bod!==bo)return false;
-    const s=stockDe(sm,v.id,loc),t=stockDe(sm,v.id,'');
-    if(es==='con'&&s<=0)return false;if(es==='sin'&&s>0)return false;if(es==='bajo'&&!(v.min>0&&t<v.min))return false;
+    const s=stockDe(sm,v.id,loc);
+    if(es==='con'&&s<=0)return false;if(es==='sin'&&s>0)return false;if(es==='bajo'&&!(v.min>0&&s<v.min))return false;
     return true;})};
 }
 function renderVStock(){
@@ -1682,15 +1692,13 @@ function renderVStock(){
   const {sm,loc,rows}=vStockRows();const A=isA();
   let tb=0,tv=0;
   $f('vs-t').innerHTML=rows.length?rows.map(v=>{
-    const c=stockDe(sm,v.id,'Centro'),p=stockDe(sm,v.id,'Pichincha'),t=c+p,s=loc?stockDe(sm,v.id,loc):t;
-    tb+=s;tv+=Math.max(s,0)*v.costo;const bajo=v.min>0&&t<v.min;
-    const cell=(n,on)=>`<td style="text-align:right;${on?'':'color:var(--tx3)'}${n<0?';color:var(--tx-err)':''}">${nq(n)}</td>`;
+    const s=stockDe(sm,v.id,loc);
+    tb+=s;tv+=Math.max(s,0)*v.costo;const bajo=v.min>0&&s<v.min;
     return `<tr>
       <td style="font-size:11px;color:var(--tx3)">${sku(v.id)}</td>
       <td><div class="fw5">${esc(v.nom)}</div><div style="font-size:10px;color:var(--tx3)">${esc([v.bod,v.var,v.ana].filter(Boolean).join(' · '))}</div></td>
       <td><span class="pill">${esc(v.tipo||'—')}</span></td>
-      ${cell(c,!loc||loc==='Centro')}${cell(p,!loc||loc==='Pichincha')}
-      <td style="text-align:right" class="fw5">${nq(t)}${bajo?' <span class="badge b-x" title="Bajo mínimo">bajo</span>':''}</td>
+      <td style="text-align:right;${s<0?'color:var(--tx-err)':''}" class="fw5">${nq(s)}${bajo?' <span class="badge b-x" title="Bajo mínimo">bajo</span>':''}</td>
       <td style="text-align:right;color:var(--tx3)">${v.min||'—'}</td>
       <td style="text-align:right">${fmt(v.costo)}</td>
       <td style="text-align:right" class="fw5">${fmt(Math.max(s,0)*v.costo)}</td>
@@ -1700,14 +1708,14 @@ function renderVStock(){
         <button class="ab" title="Editar" onclick="openVino(${v.id})"><i class="ti ti-pencil"></i></button>
         <button class="ab" title="Cargar movimiento" onclick="openMov(${v.id})"><i class="ti ti-arrows-exchange"></i></button>
       </td></tr>`;}).join('')
-    :`<tr><td colspan="12" class="empty"><i class="ti ti-bottle"></i>${vinos.length?'No hay vinos con esos filtros':'Todavía no hay vinos cargados'}</td></tr>`;
-  $f('vs-f').innerHTML=rows.length?`<tr><td colspan="5" style="font-size:11px;color:var(--tx3)">${rows.length} vinos${loc?' · '+loc:''}</td><td style="text-align:right" class="fw5">${nq(tb)}</td><td colspan="2"></td><td style="text-align:right" class="fw5">${fmt(tv)}</td><td colspan="3"></td></tr>`:'';
+    :`<tr><td colspan="10" class="empty"><i class="ti ti-bottle"></i>${vinos.length?'No hay vinos con esos filtros':'Todavía no hay vinos cargados'}</td></tr>`;
+  $f('vs-f').innerHTML=rows.length?`<tr><td colspan="3" style="font-size:11px;color:var(--tx3)">${rows.length} vinos · ${loc}</td><td style="text-align:right" class="fw5">${nq(tb)}</td><td colspan="2"></td><td style="text-align:right" class="fw5">${fmt(tv)}</td><td colspan="3"></td></tr>`:'';
 }
 
 // ---------- MOVIMIENTOS ----------
 function renderVMov(){
   if(!$f('vm-t'))return;
-  const q=$f('vm-q').value.toLowerCase(),loc=$f('vm-local').value,tp=$f('vm-tipo').value,d=$f('vm-desde').value,h=$f('vm-hasta').value;
+  const q=$f('vm-q').value.toLowerCase(),loc=vLocal,tp=$f('vm-tipo').value,d=$f('vm-desde').value,h=$f('vm-hasta').value;
   const rows=vmovs.filter(x=>{
     const v=vinoById(x.vid);if(!v)return false;
     if(q&&!(vLabel(v)+' '+x.nota).toLowerCase().includes(q))return false;
@@ -1778,7 +1786,7 @@ function openMov(vid){
   if(!isA()){toast('Solo el administrador puede cargar movimientos','warn');return;}
   if(!vinos.length){toast('Primero cargá vinos en el catálogo','warn');return;}
   $f('m-tipo').innerHTML=Object.entries(VTIPOS).map(([k,t])=>`<option value="${k}">${t.l}</option>`).join('');
-  $f('m-fecha').value=td();$f('m-nota').value='';$f('m-items').innerHTML='';addMovItem(vid);onMovTipo();
+  $f('m-local').value=vLocal;$f('m-fecha').value=td();$f('m-nota').value='';$f('m-items').innerHTML='';addMovItem(vid);onMovTipo();
   $f('modal-mov').classList.add('open');
 }
 async function saveMov(){
@@ -1794,7 +1802,7 @@ async function saveMov(){
 // ---------- CONTEO ----------
 function openConteo(){
   if(!isA()){toast('Solo el administrador puede cargar conteos','warn');return;}
-  conteoVals={};$f('c-fecha').value=td();$f('c-q').value='';renderConteo();$f('modal-conteo').classList.add('open');
+  conteoVals={};$f('c-local').value=vLocal;$f('c-fecha').value=td();$f('c-q').value='';renderConteo();$f('modal-conteo').classList.add('open');
 }
 function renderConteo(){
   const loc=$f('c-local').value,q=$f('c-q').value.toLowerCase(),sm=stockMap();
@@ -1818,13 +1826,14 @@ async function saveConteo(){
 function exportVinos(){
   if(typeof XLSX==='undefined'){toast('Librería no cargada, intentá de nuevo','warn');return;}
   const sm=stockMap(),wb=XLSX.utils.book_new();
-  const h=['SKU','Vino','Bodega','Varietal','Añada','Tipo','Proveedor','Stock Centro','Stock Pichincha','Stock total','Mínimo','Costo ($)','Valor costo ($)','Precio botella ($)','Precio copa ($)','Activo'];
-  const d=vinos.map(v=>{const c=stockDe(sm,v.id,'Centro'),p=stockDe(sm,v.id,'Pichincha');return [sku(v.id),v.nom,v.bod,v.var,v.ana,v.tipo,v.prov,c,p,c+p,v.min,v.costo,Math.max(c+p,0)*v.costo,v.pb,v.pc,v.act?'Sí':'No']});
+  const loc=vLocal;
+  const h=['SKU','Vino','Bodega','Varietal','Añada','Tipo','Proveedor','Stock '+loc,'Mínimo','Costo ($)','Valor costo ($)','Precio botella ($)','Precio copa ($)','Activo'];
+  const d=vinos.map(v=>{const s=stockDe(sm,v.id,loc);return [sku(v.id),v.nom,v.bod,v.var,v.ana,v.tipo,v.prov,s,v.min,v.costo,Math.max(s,0)*v.costo,v.pb,v.pc,v.act?'Sí':'No']});
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([h,...d]),'Stock');
   const h2=['Fecha','Local','Tipo','SKU','Vino','Cantidad','Costo unit ($)','Precio unit ($)','Nota'];
-  const d2=vmovs.map(x=>{const v=vinoById(x.vid)||{};return [fD(x.fecha),x.local,(VTIPOS[x.tipo]||{}).l||x.tipo,sku(x.vid),v.nom||'',x.cant,x.costo,x.precio??'',x.nota]});
+  const d2=vmovs.filter(x=>x.local===loc).map(x=>{const v=vinoById(x.vid)||{};return [fD(x.fecha),x.local,(VTIPOS[x.tipo]||{}).l||x.tipo,sku(x.vid),v.nom||'',x.cant,x.costo,x.precio??'',x.nota]});
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([h2,...d2]),'Movimientos');
-  const t=td().replace(/-/g,'');XLSX.writeFile(wb,`VINITO_vinos_${t}.xlsx`);toast('Exportado: VINITO_vinos_'+t+'.xlsx','ok');
+  const t=td().replace(/-/g,'');XLSX.writeFile(wb,`VINITO_vinos_${loc}_${t}.xlsx`);toast('Exportado: VINITO_vinos_'+loc+'_'+t+'.xlsx','ok');
 }
 
 // Arranque: si ya había sesión (cookie), retomamos sin pedir login de nuevo.
