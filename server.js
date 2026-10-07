@@ -455,8 +455,11 @@ async function initVinos() {
       PRIMARY KEY (local, tipo)
     );
     INSERT INTO vino_planillas (local, tipo, url) VALUES
-      ('Wheelwright', 'catalogo', 'https://docs.google.com/spreadsheets/d/1UwBQvJmzbi9fmOcTMXl660n2D3lmuWa5vgRgsAiVAyM/edit?gid=0')
+      ('Wheelwright', 'catalogo', 'https://docs.google.com/spreadsheets/d/1UwBQvJmzbi9fmOcTMXl660n2D3lmuWa5vgRgsAiVAyM/edit?gid=0'),
+      ('Pichincha', 'catalogo', 'https://docs.google.com/spreadsheets/d/1XrxCwVQ95iD_Z6fQP7ARj1IzM6Fg6TFB2H1UzUY2f3M/edit?gid=1162959689')
       ON CONFLICT DO NOTHING;
+    UPDATE vino_planillas SET url='https://docs.google.com/spreadsheets/d/1XrxCwVQ95iD_Z6fQP7ARj1IzM6Fg6TFB2H1UzUY2f3M/edit?gid=1162959689'
+      WHERE local='Pichincha' AND tipo='catalogo' AND (url IS NULL OR url='');
   `);
 }
 initVinos().catch((err) => console.error('Error creando tablas de vinos:', err));
