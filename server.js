@@ -465,6 +465,9 @@ async function initVinos() {
       ('Wheelwright', 'stock', 'https://docs.google.com/spreadsheets/d/1M-n_xUKsHo12LEgYTCI8bp3ARBOA0nRq_zaS_qQZv5Q/edit?gid=1834524866'),
       ('Pichincha', 'stock', 'https://docs.google.com/spreadsheets/d/1M-n_xUKsHo12LEgYTCI8bp3ARBOA0nRq_zaS_qQZv5Q/edit?gid=116525467')
       ON CONFLICT (local, tipo) DO UPDATE SET url=EXCLUDED.url WHERE vino_planillas.url IS NULL OR vino_planillas.url='';
+    -- borra los vinos basura que creó la sincronización vieja del catálogo de Wheelwright
+    -- (quedaron con un precio como nombre, ej. "$10.333")
+    DELETE FROM vinos WHERE nombre ~ '^\\s*\\$\\s*[0-9.,]+\\s*$';
   `);
 }
 initVinos().catch((err) => console.error('Error creando tablas de vinos:', err));
@@ -681,7 +684,9 @@ function sheetsClient() {
     const { google } = require('googleapis');
     const auth = new google.auth.GoogleAuth({
       credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
-      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+      // escritura: la sincronización completa la columna SKU de la planilla de stock
+      // (la planilla de stock tiene que estar compartida como Editor con la cuenta de servicio)
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
     googleSheetsApi = google.sheets({ version: 'v4', auth });
   }
@@ -712,8 +717,25 @@ async function leerHoja(url) {
   const hojas = meta.data.sheets.map((s) => s.properties);
   const hoja = (gid != null && hojas.find((h) => h.sheetId === gid)) || hojas[0];
   const r = await sheets.spreadsheets.values.get({ spreadsheetId: id, range: `'${hoja.title.replace(/'/g, "''")}'!A:Z` }); // sin límite de filas
-  return r.data.values || [];
+  const filas = r.data.values || [];
+  filas.hoja = { id, title: hoja.title }; // para poder escribir después en la misma pestaña
+  return filas;
 }
+// Escribe los SKU nuevos en la planilla de stock (filas que no tenían SKU).
+async function escribirSkus(info) {
+  if (!info || !info.pendientes.length) return 0;
+  const letra = String.fromCharCode(65 + info.colSku);
+  const titulo = info.title.replace(/'/g, "''");
+  await sheetsClient().spreadsheets.values.batchUpdate({
+    spreadsheetId: info.id,
+    requestBody: {
+      valueInputOption: 'RAW',
+      data: info.pendientes.map((p) => ({ range: `'${titulo}'!${letra}${p.fila}`, values: [[p.sku]] })),
+    },
+  });
+  return info.pendientes.length;
+}
+function skuDe(id) { return 'V' + String(id).padStart(4, '0'); }
 function norm(s) {
   return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
 }
@@ -826,6 +848,13 @@ async function syncStock(client, local, url, usuario) {
   const hoy = new Date().toISOString().slice(0, 10);
   const val = (f, k) => (k >= 0 && f[k] != null ? String(f[k]).trim() : '');
   const contados = new Map(); // vino_id -> { vino, contado } (si un vino aparece en dos filas, se suman)
+  const skuPendientes = []; // filas sin SKU: se completan en la planilla después del COMMIT
+  // cuántas veces aparece cada SKU: si es único se confía en él aunque el nombre en la planilla haya cambiado
+  const skuCount = new Map();
+  for (let i = h + 1; i < filas.length; i++) {
+    const s = val(filas[i] || [], cols.sku).toUpperCase();
+    if (s) skuCount.set(s, (skuCount.get(s) || 0) + 1);
+  }
   for (let i = h + 1; i < filas.length; i++) {
     const f = filas[i] || [];
     const etiqueta = val(f, cols.etiqueta), sku = val(f, cols.sku);
@@ -837,12 +866,13 @@ async function syncStock(client, local, url, usuario) {
     const clave = claveVino(etiqueta, cepaF, bodegaF);
     const claveTipo = tipoN ? clave + '|' + tipoN : clave;
     let vino = null;
-    // 1) por SKU (es el id del vino en el sistema), siempre que etiqueta/cepa/bodega coincidan
-    //    (en la planilla hay SKUs repetidos en vinos distintos, ej. VARIETE malbec y cab franc)
+    // 1) por SKU (es el id del vino en el sistema). Si el SKU está repetido en la planilla
+    //    (ej. VARIETE malbec y cab franc con el mismo SKU) solo se usa si etiqueta/cepa/bodega coinciden.
     if (sku) {
       const m = sku.toUpperCase().match(/V?0*(\d+)/);
       const v = m ? porId.get(Number(m[1])) : null;
-      if (v && (!etiqueta || [clave, claveTipo].includes(v.clave || claveVino(v.nombre, v.varietal, v.bodega)))) vino = v;
+      const unico = skuCount.get(sku.toUpperCase()) === 1;
+      if (v && (!etiqueta || unico || [clave, claveTipo].includes(v.clave || claveVino(v.nombre, v.varietal, v.bodega)))) vino = v;
     }
     // 2) por etiqueta + cepa + bodega + tipo (ej. KAMALA cab franc tinto y rosado son vinos distintos)
     if (!vino && etiqueta) {
@@ -863,6 +893,7 @@ async function syncStock(client, local, url, usuario) {
     }
     if (!vino) { res.noEncontrados.push(sku || `fila ${i + 1}`); continue; }
     res.filas++;
+    if (!sku && cols.sku >= 0) skuPendientes.push({ fila: i + 1, sku: skuDe(vino.id) });
     const prev = contados.get(vino.id);
     contados.set(vino.id, { vino, contado: (prev ? prev.contado : 0) + contado });
   }
@@ -878,6 +909,21 @@ async function syncStock(client, local, url, usuario) {
     stock.set(vino.id, contado);
     res.ajustes++;
   }
+  // la planilla es el stock completo del local: los vinos que tienen stock en el sistema
+  // pero no figuran en la planilla quedan en 0
+  if (res.filas > 0) {
+    for (const [vinoId, s] of stock) {
+      if (!s || contados.has(vinoId)) continue;
+      const vino = porId.get(vinoId);
+      await client.query(
+        `INSERT INTO vino_movimientos (vino_id, local, tipo, cantidad, costo_unit, fecha, nota, usuario)
+         VALUES ($1,$2,'ajuste',$3,$4,$5,$6,$7)`,
+        [vinoId, local, -s, num(vino && vino.costo), hoy, `Sincronización planilla de stock: no figura en la planilla (sistema ${s})`, usuario]
+      );
+      res.ajustes++;
+    }
+  }
+  if (filas.hoja && cols.sku >= 0) res._skus = { ...filas.hoja, colSku: cols.sku, pendientes: skuPendientes };
   return res;
 }
 
@@ -931,6 +977,16 @@ app.post('/api/vinos/sync', requireAdminOSocio, async (req, res) => {
     if (urls.stock) out.stock = await syncStock(client, local, urls.stock, req.session.role);
     await client.query("UPDATE vino_planillas SET ultima_sync=now() WHERE local=$1 AND url IS NOT NULL", [local]);
     await client.query('COMMIT');
+    // recién con los vinos guardados se escriben sus SKU en la planilla de stock
+    if (out.stock && out.stock._skus) {
+      try {
+        out.stock.skusEscritos = await escribirSkus(out.stock._skus);
+      } catch (e) {
+        console.error('No se pudieron escribir los SKU:', e.message);
+        out.stock.skuError = `No pude completar los SKU en la planilla de stock. Compartila como Editor con ${serviceAccountEmail() || 'la cuenta de servicio'}`;
+      }
+      delete out.stock._skus;
+    }
     res.json(out);
   } catch (err) {
     await client.query('ROLLBACK');
