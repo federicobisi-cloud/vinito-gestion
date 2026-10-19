@@ -730,25 +730,45 @@ function capitalizar(s) {
   return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
 }
 
+// Busca la fila de encabezados de la planilla de catálogo y ubica cada columna por su nombre
+// (Wheelwright y Pichincha tienen las columnas en distinto orden).
+function columnasCatalogo(filas) {
+  for (let i = 0; i < Math.min(filas.length, 10); i++) {
+    const H = (filas[i] || []).map(norm);
+    const idx = (...ns) => { for (const n of ns) { const k = H.indexOf(n); if (k >= 0) return k; } return -1; };
+    const etiqueta = idx('ETIQUETA', 'ETIQUETAS');
+    if (etiqueta < 0) continue;
+    return {
+      h: i, etiqueta, tipo: idx('VINO', 'TIPO'), cepa: idx('CEPA'), bodega: idx('BODEGA'), region: idx('REGION'),
+      proveedor: idx('PROVEEDOR', 'DISTRIBUIDOR'), costo: idx('COSTO'),
+      costoAlt: H.findIndex((x) => x.startsWith('COSTO') && x !== 'COSTO'),
+      precio: idx('PRECIO CARTA', 'PRECIO'),
+    };
+  }
+  // sin encabezados: formato viejo (A tipo, C etiqueta, D cepa, F bodega, H región, I distribuidor, L costo, N precio)
+  return { h: 0, etiqueta: 2, tipo: 0, cepa: 3, bodega: 5, region: 7, proveedor: 8, costo: 11, costoAlt: -1, precio: 13 };
+}
+
 async function syncCatalogo(client, local, url) {
   const filas = await leerHoja(url);
   const res = { leidos: 0, creados: 0, actualizados: 0 };
+  const c = columnasCatalogo(filas);
+  const col = (f, k) => (k >= 0 ? String(f[k] == null ? '' : f[k]).trim() : '');
   const existentes = await client.query('SELECT id, clave, nombre, bodega, varietal FROM vinos');
   const porClave = new Map();
   existentes.rows.forEach((v) => porClave.set(v.clave || claveVino(v.nombre, v.varietal, v.bodega), v.id));
   const vistos = new Set();
-  for (let i = 1; i < filas.length; i++) {
-    const f = filas[i];
-    const etiqueta = (f[2] || '').trim();
+  for (let i = c.h + 1; i < filas.length; i++) {
+    const f = filas[i] || [];
+    const etiqueta = col(f, c.etiqueta);
     if (!etiqueta) continue;
-    const tipo = capitalizar(f[0]) || 'Tinto';
-    const cepa = (f[3] || '').trim() || null;
-    const bodega = (f[5] || '').trim() || null;
-    const region = (f[7] || '').trim() || null;
-    // proveedor: en la planilla de Wheelwright está en la columna G; en Pichincha en la I
-    const proveedor = String((local === 'Wheelwright' ? (f[6] || f[8]) : f[8]) || '').trim() || null;
-    const costo = plata(f[11]);
-    const precio = plata(f[13]);
+    const tipo = capitalizar(col(f, c.tipo)) || 'Tinto';
+    const cepa = col(f, c.cepa) || null;
+    const bodega = col(f, c.bodega) || null;
+    const region = col(f, c.region) || null;
+    const proveedor = col(f, c.proveedor) || null;
+    const costo = plata(col(f, c.costo)) || plata(col(f, c.costoAlt));
+    const precio = plata(col(f, c.precio));
     const clave = claveVino(etiqueta, cepa, bodega);
     if (vistos.has(clave)) continue; // fila repetida en la planilla
     vistos.add(clave);
@@ -782,40 +802,64 @@ async function syncCatalogo(client, local, url) {
 
 async function syncStock(client, local, url, usuario) {
   const filas = await leerHoja(url);
-  const res = { filas: 0, ajustes: 0, noEncontrados: [] };
-  // busca la fila de encabezados (la primera que tenga una columna STOCK)
+  const res = { filas: 0, ajustes: 0, creados: 0, noEncontrados: [] };
+  // busca la fila de encabezados: el stock se toma de la columna TOTAL
+  // (Wheelwright: columna M, Pichincha: columna K); si no hay TOTAL, STOCK/CANTIDAD/BOTELLAS
   let h = -1, cols = {};
   for (let i = 0; i < Math.min(filas.length, 10); i++) {
     const head = (filas[i] || []).map(norm);
-    const iStock = head.findIndex((x) => x === 'STOCK' || x.startsWith('STOCK') || x === 'CANTIDAD' || x === 'BOTELLAS');
+    let iStock = head.indexOf('TOTAL');
+    if (iStock < 0) iStock = head.findIndex((x) => x === 'STOCK' || x.startsWith('STOCK') || x === 'CANTIDAD' || x === 'BOTELLAS');
     if (iStock >= 0) {
       h = i;
-      cols = { stock: iStock, sku: head.indexOf('SKU'), etiqueta: head.indexOf('ETIQUETA'), cepa: head.indexOf('CEPA'), bodega: head.indexOf('BODEGA') };
+      const etq = head.indexOf('ETIQUETA') >= 0 ? head.indexOf('ETIQUETA') : head.indexOf('ETIQUETAS');
+      cols = { stock: iStock, sku: head.indexOf('SKU'), tipo: head.indexOf('TIPO'), etiqueta: etq, cepa: head.indexOf('CEPA'), bodega: head.indexOf('BODEGA') };
       break;
     }
   }
-  if (h < 0) throw new Error('La planilla de stock necesita una columna llamada STOCK');
+  if (h < 0) throw new Error('La planilla de stock necesita una columna llamada TOTAL (o STOCK)');
   const vinos = await client.query('SELECT * FROM vinos');
   const porId = new Map(vinos.rows.map((v) => [v.id, v]));
   const porClave = new Map(vinos.rows.map((v) => [v.clave || claveVino(v.nombre, v.varietal, v.bodega), v]));
   const sr = await client.query('SELECT vino_id, COALESCE(SUM(cantidad),0) AS stock FROM vino_movimientos WHERE local=$1 GROUP BY vino_id', [local]);
   const stock = new Map(sr.rows.map((r) => [r.vino_id, num(r.stock)]));
   const hoy = new Date().toISOString().slice(0, 10);
+  const val = (f, k) => (k >= 0 && f[k] != null ? String(f[k]).trim() : '');
+  const contados = new Map(); // vino_id -> { vino, contado } (si un vino aparece en dos filas, se suman)
   for (let i = h + 1; i < filas.length; i++) {
     const f = filas[i] || [];
-    const crudo = String(f[cols.stock] == null ? '' : f[cols.stock]).trim();
+    const etiqueta = val(f, cols.etiqueta), sku = val(f, cols.sku);
+    if (!etiqueta && !sku) continue; // filas vacías o de totales
+    const crudo = val(f, cols.stock);
     if (crudo === '') continue;
     const contado = num(crudo.replace(',', '.'));
-    let vino = null;
-    if (cols.sku >= 0 && f[cols.sku]) {
-      const m = String(f[cols.sku]).toUpperCase().match(/V?0*(\d+)/);
-      if (m) vino = porId.get(Number(m[1]));
+    // primero por etiqueta + cepa + bodega (igual que el catálogo)
+    let vino = etiqueta ? porClave.get(claveVino(etiqueta, val(f, cols.cepa), val(f, cols.bodega))) : null;
+    if (!vino && sku) {
+      // SKU como respaldo, solo si la bodega coincide (evita asignar el stock a otro vino)
+      const m = sku.toUpperCase().match(/V?0*(\d+)/);
+      const v = m ? porId.get(Number(m[1])) : null;
+      if (v && (cols.bodega < 0 || norm(v.bodega) === norm(val(f, cols.bodega)))) vino = v;
     }
-    if (!vino && cols.etiqueta >= 0) {
-      vino = porClave.get(claveVino(f[cols.etiqueta], cols.cepa >= 0 ? f[cols.cepa] : '', cols.bodega >= 0 ? f[cols.bodega] : ''));
+    if (!vino && etiqueta) {
+      // vino nuevo en la planilla de stock que todavía no está en el sistema: se da de alta
+      const cepa = val(f, cols.cepa) || null, bodega = val(f, cols.bodega) || null;
+      const clave = claveVino(etiqueta, cepa, bodega);
+      const ins = await client.query(
+        `INSERT INTO vinos (nombre, varietal, bodega, tipo, clave) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+        [etiqueta, cepa, bodega, capitalizar(val(f, cols.tipo)) || 'Tinto', clave]
+      );
+      vino = ins.rows[0];
+      porId.set(vino.id, vino);
+      porClave.set(clave, vino);
+      res.creados++;
     }
-    if (!vino) { res.noEncontrados.push(String(f[cols.etiqueta] || f[cols.sku] || `fila ${i + 1}`)); continue; }
+    if (!vino) { res.noEncontrados.push(sku || `fila ${i + 1}`); continue; }
     res.filas++;
+    const prev = contados.get(vino.id);
+    contados.set(vino.id, { vino, contado: (prev ? prev.contado : 0) + contado });
+  }
+  for (const { vino, contado } of contados.values()) {
     await vincularLocal(client, vino.id, local);
     const dif = contado - (stock.get(vino.id) || 0);
     if (dif === 0) continue;
