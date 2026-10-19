@@ -833,25 +833,32 @@ async function syncStock(client, local, url, usuario) {
     const crudo = val(f, cols.stock);
     if (crudo === '') continue;
     const contado = num(crudo.replace(',', '.'));
-    // primero por etiqueta + cepa + bodega (igual que el catálogo)
-    let vino = etiqueta ? porClave.get(claveVino(etiqueta, val(f, cols.cepa), val(f, cols.bodega))) : null;
-    if (!vino && sku) {
-      // SKU como respaldo, solo si la bodega coincide (evita asignar el stock a otro vino)
+    const cepaF = val(f, cols.cepa), bodegaF = val(f, cols.bodega), tipoN = norm(val(f, cols.tipo));
+    const clave = claveVino(etiqueta, cepaF, bodegaF);
+    const claveTipo = tipoN ? clave + '|' + tipoN : clave;
+    let vino = null;
+    // 1) por SKU (es el id del vino en el sistema), siempre que etiqueta/cepa/bodega coincidan
+    //    (en la planilla hay SKUs repetidos en vinos distintos, ej. VARIETE malbec y cab franc)
+    if (sku) {
       const m = sku.toUpperCase().match(/V?0*(\d+)/);
       const v = m ? porId.get(Number(m[1])) : null;
-      if (v && (cols.bodega < 0 || norm(v.bodega) === norm(val(f, cols.bodega)))) vino = v;
+      if (v && (!etiqueta || [clave, claveTipo].includes(v.clave || claveVino(v.nombre, v.varietal, v.bodega)))) vino = v;
     }
+    // 2) por etiqueta + cepa + bodega + tipo (ej. KAMALA cab franc tinto y rosado son vinos distintos)
     if (!vino && etiqueta) {
-      // vino nuevo en la planilla de stock que todavía no está en el sistema: se da de alta
-      const cepa = val(f, cols.cepa) || null, bodega = val(f, cols.bodega) || null;
-      const clave = claveVino(etiqueta, cepa, bodega);
+      const v = porClave.get(claveTipo) || porClave.get(clave);
+      if (v && (!tipoN || !v.tipo || norm(v.tipo) === tipoN)) vino = v;
+    }
+    // 3) vino nuevo en la planilla de stock que todavía no está en el sistema: se da de alta
+    if (!vino && etiqueta) {
+      const nueva = porClave.has(clave) ? claveTipo : clave; // si ya existe con otro tipo, la clave lleva el tipo
       const ins = await client.query(
         `INSERT INTO vinos (nombre, varietal, bodega, tipo, clave) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-        [etiqueta, cepa, bodega, capitalizar(val(f, cols.tipo)) || 'Tinto', clave]
+        [etiqueta, cepaF || null, bodegaF || null, capitalizar(val(f, cols.tipo)) || 'Tinto', nueva]
       );
       vino = ins.rows[0];
       porId.set(vino.id, vino);
-      porClave.set(clave, vino);
+      porClave.set(nueva, vino);
       res.creados++;
     }
     if (!vino) { res.noEncontrados.push(sku || `fila ${i + 1}`); continue; }
