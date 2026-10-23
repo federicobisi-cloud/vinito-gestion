@@ -671,7 +671,7 @@ app.post('/api/vinos/conteo', requireAdmin, async (req, res) => {
 // (variable GOOGLE_CREDENTIALS). Cada planilla tiene que estar compartida
 // con el email de esa cuenta (solo lectura alcanza).
 //  · 'catalogo': la planilla de vinos del local. Columnas: A tipo, C etiqueta,
-//    D cepa, F bodega, H región, I distribuidor (en Wheelwright: G), L costo, N precio carta.
+//    D cepa, F bodega, H región, I distribuidor (en Wheelwright: G), COSTO 26 (o COSTO), N precio carta.
 //  · 'stock': la planilla que completa el encargado. Necesita una columna
 //    SKU (o ETIQUETA/CEPA/BODEGA) y una columna STOCK con las botellas contadas.
 // =====================================================================
@@ -762,8 +762,10 @@ function columnasCatalogo(filas) {
     if (etiqueta < 0) continue;
     return {
       h: i, etiqueta, tipo: idx('VINO', 'TIPO'), cepa: idx('CEPA'), bodega: idx('BODEGA'), region: idx('REGION'),
-      proveedor: idx('PROVEEDOR', 'DISTRIBUIDOR'), costo: idx('COSTO'),
-      costoAlt: H.findIndex((x) => x.startsWith('COSTO') && x !== 'COSTO'),
+      proveedor: idx('PROVEEDOR', 'DISTRIBUIDOR'),
+      // costo: primero la columna del año ("COSTO 26"); si esa celda está vacía, la columna COSTO
+      costo: H.findIndex((x) => x.startsWith('COSTO') && x !== 'COSTO'),
+      costoAlt: idx('COSTO'),
       precio: idx('PRECIO CARTA', 'PRECIO'),
     };
   }
