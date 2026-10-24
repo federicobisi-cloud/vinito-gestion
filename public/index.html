@@ -550,6 +550,7 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
               <select class="fsel" id="vs-est" onchange="renderVStock()">
                 <option value="">Todos</option><option value="con">Con stock</option><option value="bajo">Bajo mínimo</option><option value="sin">Sin stock</option><option value="inact">Inactivos</option>
               </select>
+              <select class="fsel" id="vs-ord" onchange="renderVStock()"><option value="">Orden: nombre</option><option value="mas">Mayor stock primero</option><option value="menos">Menor stock primero</option></select>
             </div>
             <div class="filters">
               <button class="btn btn-sm" onclick="exportVinos()"><i class="ti ti-download"></i> Excel</button>
@@ -562,7 +563,7 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
             <thead><tr>
               <th style="width:58px">SKU</th><th>Vino</th><th>Tipo</th>
               <th style="text-align:right">Stock</th><th style="text-align:right">Mín.</th>
-              <th style="text-align:right">Costo</th><th style="text-align:right">Valor costo</th><th style="text-align:right">Precio bot.</th><th style="text-align:right">Copa</th>
+              <th style="text-align:right">Costo</th><th style="text-align:right">Precio carta</th><th style="text-align:right">Copa</th>
               <th style="width:80px" class="vadm">Acciones</th>
             </tr></thead>
             <tbody id="vs-t"></tbody>
@@ -1833,7 +1834,7 @@ function vStockRows(){
     if(tp&&v.tipo!==tp)return false;if(bo&&v.bod!==bo)return false;
     const s=stockDe(sm,v.id,loc);
     if(es==='con'&&s<=0)return false;if(es==='sin'&&s>0)return false;if(es==='bajo'&&!(v.min>0&&s<v.min))return false;
-    return true;})};
+    return true;}).sort((a,b)=>{const o=$f('vs-ord')?$f('vs-ord').value:'';if(!o)return 0;const d=stockDe(sm,a.id,loc)-stockDe(sm,b.id,loc);return o==='mas'?-d:d;})};
 }
 function renderVStock(){
   if(!$f('vs-t'))return;
@@ -1849,15 +1850,14 @@ function renderVStock(){
       <td style="text-align:right;${s<0?'color:var(--tx-err)':''}" class="fw5">${nq(s)}${bajo?' <span class="badge b-x" title="Bajo mínimo">bajo</span>':''}</td>
       <td style="text-align:right;color:var(--tx3)">${v.min||'—'}</td>
       <td style="text-align:right">${fmt(v.costo)}</td>
-      <td style="text-align:right" class="fw5">${fmt(Math.max(s,0)*v.costo)}</td>
-      <td style="text-align:right">${fmt(v.pb)}</td>
+      <td style="text-align:right" class="fw5">${fmt(v.pb)}</td>
       <td style="text-align:right;color:var(--tx2)">${v.pc?fmt(v.pc):'—'}</td>
       <td class="vadm" style="${A?'':'display:none'}">
         <button class="ab" title="Editar" onclick="openVino(${v.id})"><i class="ti ti-pencil"></i></button>
         <button class="ab" title="Cargar movimiento" onclick="openMov(${v.id})"><i class="ti ti-arrows-exchange"></i></button>
       </td></tr>`;}).join('')
-    :`<tr><td colspan="10" class="empty"><i class="ti ti-bottle"></i>${vinos.length?'No hay vinos con esos filtros':'Todavía no hay vinos cargados'}</td></tr>`;
-  $f('vs-f').innerHTML=rows.length?`<tr><td colspan="3" style="font-size:11px;color:var(--tx3)">${rows.length} vinos · ${loc}</td><td style="text-align:right" class="fw5">${nq(tb)}</td><td colspan="2"></td><td style="text-align:right" class="fw5">${fmt(tv)}</td><td colspan="3"></td></tr>`:'';
+    :`<tr><td colspan="9" class="empty"><i class="ti ti-bottle"></i>${vinos.length?'No hay vinos con esos filtros':'Todavía no hay vinos cargados'}</td></tr>`;
+  $f('vs-f').innerHTML=rows.length?`<tr><td colspan="3" style="font-size:11px;color:var(--tx3)">${rows.length} vinos · ${loc}</td><td style="text-align:right" class="fw5">${nq(tb)}</td><td colspan="5" style="font-size:11px;color:var(--tx3)">Valor del stock a costo: <b style="color:var(--tx)">${fmt(tv)}</b></td></tr>`:'';
 }
 
 // ---------- MOVIMIENTOS ----------
