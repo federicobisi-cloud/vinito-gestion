@@ -439,6 +439,7 @@ async function initVinos() {
     UPDATE vino_movimientos SET local='Wheelwright' WHERE local='Centro';
     ALTER TABLE vinos ADD COLUMN IF NOT EXISTS region TEXT;
     ALTER TABLE vinos ADD COLUMN IF NOT EXISTS clave TEXT;
+    ALTER TABLE vinos ADD COLUMN IF NOT EXISTS referente TEXT;
     CREATE INDEX IF NOT EXISTS idx_vinos_clave ON vinos(clave);
     -- qué vinos trabaja cada local (cada local tiene su carta y su stock)
     CREATE TABLE IF NOT EXISTS vino_locales (
@@ -886,6 +887,8 @@ function columnasCatalogo(filas) {
     return {
       h: i, etiqueta, tipo: idx('VINO', 'TIPO'), cepa: idx('CEPA'), bodega: idx('BODEGA'), region: idx('REGION'),
       proveedor: idx('PROVEEDOR', 'DISTRIBUIDOR'),
+      // contacto del proveedor: columna REFERENTE (en Pichincha la columna antes de REGION no tiene título)
+      referente: idx('REFERENTE', 'CONTACTO') >= 0 ? idx('REFERENTE', 'CONTACTO') : (idx('REGION') > 0 && H[idx('REGION') - 1] === '' ? idx('REGION') - 1 : -1),
       // costo: primero la columna del año ("COSTO 26"); si esa celda está vacía, la columna COSTO
       costo: H.findIndex((x) => x.startsWith('COSTO') && x !== 'COSTO'),
       costoAlt: idx('COSTO'),
@@ -894,7 +897,7 @@ function columnasCatalogo(filas) {
     };
   }
   // sin encabezados: formato viejo (A tipo, C etiqueta, D cepa, F bodega, H región, I distribuidor, L costo, N precio)
-  return { h: 0, etiqueta: 2, tipo: 0, cepa: 3, bodega: 5, region: 7, proveedor: 8, costo: 11, costoAlt: -1, precio: 13 };
+  return { h: 0, etiqueta: 2, tipo: 0, cepa: 3, bodega: 5, referente: 6, region: 7, proveedor: 8, costo: 11, costoAlt: -1, precio: 13 };
 }
 
 async function syncCatalogo(client, local, url) {
@@ -914,6 +917,7 @@ async function syncCatalogo(client, local, url) {
     const cepa = col(f, c.cepa) || null;
     const bodega = col(f, c.bodega) || null;
     const region = col(f, c.region) || null;
+    const referente = col(f, c.referente) || null;
     const proveedor = col(f, c.proveedor) || null;
     const costo = plata(col(f, c.costo)) || plata(col(f, c.costoAlt));
     const precio = plata(col(f, c.precio));
@@ -928,16 +932,16 @@ async function syncCatalogo(client, local, url) {
         `UPDATE vinos SET nombre=$1, varietal=$2, bodega=$3, tipo=$4, region=$5, proveedor=COALESCE($6, proveedor),
            costo=CASE WHEN $7::numeric > 0 THEN $7::numeric ELSE costo END,
            precio_botella=CASE WHEN $8::numeric > 0 THEN $8::numeric ELSE precio_botella END,
-           clave=$9, updated_at=now()
+           clave=$9, referente=COALESCE($11, referente), updated_at=now()
          WHERE id=$10`,
-        [etiqueta, cepa, bodega, tipo, region, proveedor, costo, precio, clave, id]
+        [etiqueta, cepa, bodega, tipo, region, proveedor, costo, precio, clave, id, referente]
       );
       res.actualizados++;
     } else {
       const r = await client.query(
-        `INSERT INTO vinos (nombre, varietal, bodega, tipo, region, proveedor, costo, precio_botella, clave)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-        [etiqueta, cepa, bodega, tipo, region, proveedor, costo, precio, clave]
+        `INSERT INTO vinos (nombre, varietal, bodega, tipo, region, proveedor, costo, precio_botella, clave, referente)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+        [etiqueta, cepa, bodega, tipo, region, proveedor, costo, precio, clave, referente]
       );
       id = r.rows[0].id;
       porClave.set(clave, id);
