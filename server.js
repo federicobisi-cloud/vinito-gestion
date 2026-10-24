@@ -331,6 +331,8 @@ app.post('/api/boletas/bulk-pagar', requireAdmin, async (req, res) => {
 
 app.delete('/api/boletas/:id', requireAdmin, async (req, res) => {
   try {
+    // si era una factura de vinos que sumó stock, se borran también esos ingresos
+    await pool.query(`DELETE FROM vino_movimientos WHERE grupo LIKE $1`, [`bol-${Number(req.params.id)}-%`]).catch(() => {});
     await pool.query('DELETE FROM boletas WHERE id=$1', [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
@@ -468,6 +470,17 @@ async function initVinos() {
     -- borra los vinos basura que creó la sincronización vieja del catálogo de Wheelwright
     -- (quedaron con un precio como nombre, ej. "$10.333")
     DELETE FROM vinos WHERE nombre ~ '^\\s*\\$\\s*[0-9.,]+\\s*$';
+    -- DEUDAS de vinos: son boletas comunes marcadas como de vinos, con el detalle de botellas
+    ALTER TABLE boletas ADD COLUMN IF NOT EXISTS es_vino BOOLEAN DEFAULT false;
+    ALTER TABLE boletas ADD COLUMN IF NOT EXISTS suma_stock BOOLEAN DEFAULT false;
+    CREATE TABLE IF NOT EXISTS boleta_vinos (
+      id         SERIAL PRIMARY KEY,
+      boleta_id  INTEGER NOT NULL REFERENCES boletas(id) ON DELETE CASCADE,
+      vino_id    INTEGER NOT NULL REFERENCES vinos(id) ON DELETE CASCADE,
+      cantidad   NUMERIC NOT NULL,
+      costo_unit NUMERIC
+    );
+    CREATE INDEX IF NOT EXISTS idx_bvinos_boleta ON boleta_vinos(boleta_id);
   `);
 }
 initVinos().catch((err) => console.error('Error creando tablas de vinos:', err));
@@ -493,14 +506,15 @@ async function vincularLocal(db, vinoId, local) {
 // El lector (contadora) no ve el stock de vinos: solo admin y socio.
 app.get('/api/vinos/state', requireAdminOSocio, async (req, res) => {
   try {
-    const [vinos, movs, vlocs] = await Promise.all([
+    const [vinos, movs, vlocs, bvin] = await Promise.all([
       pool.query('SELECT * FROM vinos ORDER BY nombre ASC'),
       pool.query(`SELECT id, vino_id, local, tipo, cantidad, costo_unit, precio_unit,
                          to_char(fecha,'YYYY-MM-DD') AS fecha, nota, grupo, usuario
                   FROM vino_movimientos ORDER BY fecha DESC, id DESC`),
       pool.query('SELECT vino_id, local FROM vino_locales'),
+      pool.query('SELECT boleta_id, vino_id, cantidad, costo_unit FROM boleta_vinos ORDER BY id ASC').catch(() => ({ rows: [] })),
     ]);
-    res.json({ vinos: vinos.rows, movimientos: movs.rows, vinoLocales: vlocs.rows, locales: LOCALES_VINO });
+    res.json({ vinos: vinos.rows, movimientos: movs.rows, vinoLocales: vlocs.rows, locales: LOCALES_VINO, boletaVinos: bvin.rows });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Error al cargar los vinos' });
@@ -660,6 +674,115 @@ app.post('/api/vinos/conteo', requireAdmin, async (req, res) => {
     await client.query('ROLLBACK');
     console.error(err);
     res.status(500).json({ error: 'Error al guardar el conteo' });
+  } finally {
+    client.release();
+  }
+});
+
+// =====================================================================
+// ---------- DEUDAS DE VINOS ----------
+// Una factura de vinos es una boleta común (aparece también en Boletas/Cheques)
+// marcada es_vino, con el detalle de botellas en boleta_vinos.
+// Estado: 'deuda' = cheque por emitir · 'cheque_pendiente' = cheque emitido · 'pagado'.
+// Si suma_stock, cada vino genera un movimiento 'ingreso' (grupo bol-<boleta>-<vino>).
+// =====================================================================
+const BOLETA_LOCAL = { Wheelwright: 'Centro', Pichincha: 'Pichincha' }; // en boletas Wheelwright figura como "Centro"
+
+app.post('/api/vinos/deudas', requireAdmin, async (req, res) => {
+  const { local, proveedor, numero, fecha, vencimiento, tipoDoc, tipoFact, iva, monto, notas, chequeEmitido, cheque } = req.body;
+  const sumaStock = req.body.sumaStock === true;
+  const items = Array.isArray(req.body.items) ? req.body.items.filter((i) => i && i.vinoId && num(i.cantidad) > 0) : [];
+  if (!LOCALES_VINO.includes(local)) return res.status(400).json({ error: 'Elegí el local' });
+  if (!proveedor || !String(proveedor).trim()) return res.status(400).json({ error: 'Elegí el proveedor' });
+  if (!fecha) return res.status(400).json({ error: 'Completá la fecha' });
+  if (!(num(monto) > 0)) return res.status(400).json({ error: 'Ingresá el total de la factura' });
+  if (!items.length) return res.status(400).json({ error: 'Cargá al menos un vino con cantidad' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const ids = items.map((i) => Number(i.vinoId));
+    const vr = await client.query('SELECT * FROM vinos WHERE id = ANY($1::int[])', [ids]);
+    const byId = Object.fromEntries(vr.rows.map((v) => [v.id, v]));
+    const total = num(monto);
+    const alic = num(iva);
+    const neto = alic > 0 ? total / (1 + alic / 100) : total;
+    const botellas = items.reduce((a, i) => a + num(i.cantidad), 0);
+    const prov = String(proveedor).trim();
+    const td = tipoDoc === 'remito' ? 'remito' : 'factura';
+
+    const b = await client.query(
+      `INSERT INTO boletas
+        (tipo_doc, tipo_fact, proveedor, numero, fecha, vencimiento, forma_pago, local, neto, iva, monto, descripcion, notas, estado, es_vino, suma_stock)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,true,$15) RETURNING *`,
+      [td, td === 'factura' ? (tipoFact || 'A') : null, prov, numero || null, fecha, vencimiento || null,
+       chequeEmitido ? 'cheque' : 'cuenta_corriente', BOLETA_LOCAL[local], neto, td === 'factura' ? alic : 0, total,
+       `Vinos ${local}: ${botellas} botellas (${items.length} etiqueta${items.length !== 1 ? 's' : ''})`,
+       notas || null, chequeEmitido ? 'cheque_pendiente' : 'deuda', sumaStock]
+    );
+    const boleta = b.rows[0];
+
+    if (chequeEmitido) {
+      const ck = await client.query(
+        `INSERT INTO cheques (numero, proveedor, banco, fecha_emision, fecha_cheque, monto, estado, boleta_id)
+         VALUES ($1,$2,$3,$4,$5,$6,'pendiente',$7) RETURNING id`,
+        [cheque?.numero || null, prov, cheque?.banco || null, fecha, cheque?.fechaCheque || fecha, total, boleta.id]
+      );
+      await client.query('UPDATE boletas SET cheque_id=$1 WHERE id=$2', [ck.rows[0].id, boleta.id]);
+    }
+
+    for (const it of items) {
+      const vino = byId[Number(it.vinoId)];
+      if (!vino) continue;
+      const cant = num(it.cantidad);
+      const costo = num(it.costoUnit) > 0 ? num(it.costoUnit) : num(vino.costo);
+      await client.query(
+        'INSERT INTO boleta_vinos (boleta_id, vino_id, cantidad, costo_unit) VALUES ($1,$2,$3,$4)',
+        [boleta.id, vino.id, cant, costo]
+      );
+      await vincularLocal(client, vino.id, local);
+      if (sumaStock) {
+        await client.query(
+          `INSERT INTO vino_movimientos (vino_id, local, tipo, cantidad, costo_unit, fecha, nota, grupo, usuario)
+           VALUES ($1,$2,'ingreso',$3,$4,$5,$6,$7,$8)`,
+          [vino.id, local, cant, costo, fecha, `Factura ${numero || 's/n'} · ${prov}`, `bol-${boleta.id}-${vino.id}`, req.session.role]
+        );
+      }
+    }
+    await client.query('COMMIT');
+    res.json({ ok: true, boleta });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Error al guardar la factura' });
+  } finally {
+    client.release();
+  }
+});
+
+// Emite el (e)cheque de una factura que estaba "por emitir".
+app.post('/api/vinos/deudas/:id/emitir-cheque', requireAdmin, async (req, res) => {
+  const { numero, banco, fechaCheque } = req.body || {};
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const r = await client.query('SELECT * FROM boletas WHERE id=$1', [req.params.id]);
+    const b = r.rows[0];
+    if (!b) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Factura no encontrada' }); }
+    if (b.estado !== 'deuda') { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Esta factura no está pendiente de emitir cheque' }); }
+    const hoy = new Date().toISOString().slice(0, 10);
+    const ck = await client.query(
+      `INSERT INTO cheques (numero, proveedor, banco, fecha_emision, fecha_cheque, monto, estado, boleta_id)
+       VALUES ($1,$2,$3,$4,$5,$6,'pendiente',$7) RETURNING id`,
+      [numero || null, b.proveedor, banco || null, hoy, fechaCheque || hoy, b.monto, b.id]
+    );
+    await client.query(`UPDATE boletas SET forma_pago='cheque', estado='cheque_pendiente', cheque_id=$1 WHERE id=$2`, [ck.rows[0].id, b.id]);
+    await client.query('COMMIT');
+    res.json({ ok: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Error al emitir el cheque' });
   } finally {
     client.release();
   }
