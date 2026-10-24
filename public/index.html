@@ -99,6 +99,8 @@ body{font-family:var(--font);background:var(--bg3);color:var(--tx);font-size:14p
 .lhc-badge{position:absolute;top:1rem;right:1rem;font-size:10px;padding:2px 8px;border-radius:99px;background:var(--wine-l);color:var(--wine-t)}
 /* STATS */
 .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1.25rem}
+.stats-grid.stats-grid3{grid-template-columns:repeat(3,1fr)}
+.stat-neto{background:var(--wine-l);border:0.5px solid var(--wine)}
 .stat-card{background:var(--bg2);border-radius:var(--r);padding:.9rem 1rem}
 .stat-label{font-size:11px;color:var(--tx2);margin-bottom:5px}
 .stat-value{font-size:21px;font-weight:600}
@@ -502,19 +504,14 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
             </div>
           </div>
         </div>
-        <div class="shead" style="margin-top:0">Stock actual</div>
-        <div class="stats-grid">
-          <div class="stat-card"><div class="stat-label">Valor de mercadería (a costo)</div><div class="stat-value" id="vk-vc">$0</div><div class="stat-sub" id="vk-vc-s"></div></div>
-          <div class="stat-card"><div class="stat-label">Valor a precio de venta</div><div class="stat-value c-ok" id="vk-vv">$0</div><div class="stat-sub" id="vk-vv-s"></div></div>
-          <div class="stat-card"><div class="stat-label">Botellas en stock</div><div class="stat-value" id="vk-bt">0</div><div class="stat-sub" id="vk-bt-s"></div></div>
-          <div class="stat-card"><div class="stat-label">Vinos bajo mínimo</div><div class="stat-value c-warn" id="vk-bm">0</div><div class="stat-sub" id="vk-bm-s"></div></div>
-        </div>
-        <div class="shead" id="vr-per-lbl">Estado real de mercadería</div>
-        <div class="stats-grid">
-          <div class="stat-card"><div class="stat-label">Mercadería en stock (a costo)</div><div class="stat-value" id="ve-st">$0</div><div class="stat-sub" id="ve-st-s"></div></div>
-          <div class="stat-card"><div class="stat-label">Cheques emitidos (sin acreditar)</div><div class="stat-value c-info" id="ve-ce">$0</div><div class="stat-sub" id="ve-ce-s"></div></div>
+        <div class="shead" style="margin-top:0" id="vr-per-lbl">Estado de mercadería</div>
+        <div class="stats-grid stats-grid3">
+          <div class="stat-card"><div class="stat-label">Valor mercadería costo</div><div class="stat-value" id="vk-vc">$0</div><div class="stat-sub" id="vk-vc-s"></div></div>
+          <div class="stat-card"><div class="stat-label">Valor mercadería venta</div><div class="stat-value c-ok" id="vk-vv">$0</div><div class="stat-sub" id="vk-vv-s"></div></div>
+          <div class="stat-card"><div class="stat-label">Cantidad de botellas</div><div class="stat-value" id="vk-bt">0</div><div class="stat-sub" id="vk-bt-s"></div></div>
+          <div class="stat-card"><div class="stat-label">Cheques emitidos</div><div class="stat-value c-info" id="ve-ce">$0</div><div class="stat-sub" id="ve-ce-s"></div></div>
           <div class="stat-card"><div class="stat-label">Cheques por emitir</div><div class="stat-value c-warn" id="ve-cp">$0</div><div class="stat-sub" id="ve-cp-s"></div></div>
-          <div class="stat-card"><div class="stat-label">Neto (stock − deuda)</div><div class="stat-value" id="ve-nt">$0</div><div class="stat-sub" id="ve-nt-s"></div></div>
+          <div class="stat-card stat-neto"><div class="stat-label">Neto</div><div class="stat-value" id="ve-nt">$0</div><div class="stat-sub" id="ve-nt-s"></div></div>
         </div>
         <div class="vgrid2">
           <div class="card">
@@ -1769,7 +1766,7 @@ function renderVResumen(){
   if(!$f('vr-top'))return;
   const loc=vLocal,tp=$f('vr-tipo').value,bo=$f('vr-bodega').value,pr=$f('vr-prov').value;
   const per=vPeriodo();
-  $f('vr-per-lbl').textContent='Estado real de mercadería · '+loc;
+  $f('vr-per-lbl').textContent='Estado de mercadería · '+loc;
   const sm=stockMap();
   const okV=v=>enLocal(v,sm,loc)&&(!tp||v.tipo===tp)&&(!bo||v.bod===bo)&&(!pr||v.prov===pr);
   const vs=vinos.filter(okV),ids=new Set(vs.map(v=>v.id));
@@ -1777,10 +1774,9 @@ function renderVResumen(){
   let vc=0,vv=0,bt=0,bm=0,refs=0;
   vs.forEach(v=>{const s=stockDe(sm,v.id,loc);if(s>0){vc+=s*v.costo;vv+=s*v.pb;bt+=s;refs++;}
     if(v.act&&v.min>0&&stockDe(sm,v.id,loc)<v.min)bm++;});
-  $f('vk-vc').textContent=fmt(vc);$f('vk-vc-s').textContent=refs+' etiqueta'+(refs!==1?'s':'')+' con stock';
+  $f('vk-vc').textContent=fmt(vc);$f('vk-vc-s').textContent=refs+' etiqueta'+(refs!==1?'s':'')+' con stock'+(tp||bo||pr?' · con filtros':'');
   $f('vk-vv').textContent=fmt(vv);$f('vk-vv-s').textContent=vc>0?'markup '+nq(vv/vc)+'x':'';
   $f('vk-bt').textContent=nq(bt);$f('vk-bt-s').textContent=loc;
-  $f('vk-bm').textContent=bm;$f('vk-bm-s').textContent=bm?'revisar reposición':'todo en orden';
   // período
   const ms=vmovs.filter(x=>ids.has(x.vid)&&(!loc||x.local===loc)&&enPer(x.fecha,per));
   const vend=ms.filter(x=>x.tipo==='venta'||x.tipo==='copa');
@@ -1788,10 +1784,9 @@ function renderVResumen(){
   // estado real: todo el stock del local a costo (sin filtros) contra lo que se debe de vinos de ese local
   let stTot=0;vinos.forEach(v=>{const s=stockDe(sm,v.id,loc);if(s>0)stTot+=s*v.costo;});
   const dz=deudaVinos(loc),deuda=dz.ce+dz.cp,neto=stTot-deuda;
-  $f('ve-st').textContent=fmt(stTot);$f('ve-st-s').textContent='todo el stock de '+loc;
   $f('ve-ce').textContent=fmt(dz.ce);$f('ve-ce-s').textContent=dz.nce+' factura'+(dz.nce!==1?'s':'');
   $f('ve-cp').textContent=fmt(dz.cp);$f('ve-cp-s').textContent=dz.ncp+' factura'+(dz.ncp!==1?'s':'');
-  $f('ve-nt').textContent=fmt(neto);$f('ve-nt').className='stat-value '+(neto>=0?'c-ok':'c-err');$f('ve-nt-s').textContent='se debe '+fmt(deuda);
+  $f('ve-nt').textContent=fmt(neto);$f('ve-nt').className='stat-value '+(neto>=0?'c-ok':'c-err');$f('ve-nt-s').textContent=fmt(stTot)+' en stock − '+fmt(deuda)+' de deuda';
   // ranking
   const rk={};vend.forEach(x=>{const r=rk[x.vid]||(rk[x.vid]={b:0,c:0,f:0,k:0});r.b-=x.cant;if(x.tipo==='copa')r.c-=x.cant;r.f-=x.cant*(x.precio||0);r.k-=x.cant*x.costo;});
   const ord=$f('vr-rk').value;
