@@ -297,6 +297,7 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
     <button class="nav-item" onclick="nav('vstock',this)" id="nav-vstock"><i class="ti ti-bottle"></i><span>Stock</span></button>
     <button class="nav-item" onclick="nav('vmov',this)" id="nav-vmov"><i class="ti ti-arrows-exchange"></i><span>Movimientos</span></button>
     <button class="nav-item" onclick="nav('vdeuda',this)" id="nav-vdeuda"><i class="ti ti-file-invoice"></i><span>Deudas</span></button>
+    <button class="nav-item" onclick="nav('vrepo',this)" id="nav-vrepo"><i class="ti ti-truck-delivery"></i><span>Reposición</span></button>
     <span class="nav-sec">Locales</span>
     <div class="local-btns">
       <button class="lnb" onclick="goLocal('Centro',this)"><span class="ldot"></span><span>Centro</span><span class="lchip">Local 1</span></button>
@@ -591,6 +592,29 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
           </table></div>
           <div id="vm-more" style="padding:.6rem 1.25rem;font-size:11px;color:var(--tx3)"></div>
         </div>
+      </div>
+
+      <!-- VINOS · REPOSICIÓN -->
+      <div class="view" id="view-vrepo">
+        <div class="vloc-bar"><span class="vloc-lbl">Local</span><div class="tg vloc-tg"><button type="button" class="tgb" data-l="Wheelwright" onclick="setVLocal('Wheelwright')">Wheelwright</button><button type="button" class="tgb" data-l="Pichincha" onclick="setVLocal('Pichincha')">Pichincha</button></div></div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Preparar pedido</span>
+            <div class="filters">
+              <select class="fsel" id="vp-prov" onchange="renderVRepo()" style="width:auto"><option value="">Todos los proveedores</option></select>
+              <input class="sinp" placeholder="Buscar producto..." id="vp-q" oninput="renderVRepo()">
+              <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;white-space:nowrap"><input type="checkbox" id="vp-sel" onchange="renderVRepo()" style="width:auto"> Solo lo elegido</label>
+              <button class="btn btn-sm" onclick="limpiarRepo()"><i class="ti ti-eraser"></i> Limpiar</button>
+            </div>
+          </div>
+          <div class="tw" style="max-height:460px;overflow:auto"><table style="min-width:760px">
+            <thead><tr><th>Vino</th><th>Proveedor</th><th style="text-align:right;width:80px">Stock</th><th style="text-align:right;width:70px">Mín.</th><th style="width:110px">Pedir</th></tr></thead>
+            <tbody id="vp-t"></tbody>
+          </table></div>
+          <div id="vp-more" style="padding:.6rem 1.25rem;font-size:11px;color:var(--tx3)"></div>
+        </div>
+        <div class="shead">Mensajes para WhatsApp</div>
+        <div id="vp-msgs"></div>
       </div>
 
       <!-- VINOS · DEUDAS -->
@@ -1150,7 +1174,7 @@ async function tryResumeSession(){
 }
 
 // ---------- NAV ----------
-const T={locales:'Vista por locales',boletas:'Boletas de compra',alertas:'Alertas y vencimientos',cheques:'Cheques emitidos',proveedores:'Proveedores',historial:'Historial de compras',vresumen:'Vinos · Resumen',vstock:'Vinos · Stock',vmov:'Vinos · Movimientos',vdeuda:'Vinos · Deudas'};
+const T={locales:'Vista por locales',boletas:'Boletas de compra',alertas:'Alertas y vencimientos',cheques:'Cheques emitidos',proveedores:'Proveedores',historial:'Historial de compras',vresumen:'Vinos · Resumen',vstock:'Vinos · Stock',vmov:'Vinos · Movimientos',vdeuda:'Vinos · Deudas',vrepo:'Vinos · Reposición'};
 function nav(n,btn){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
@@ -1161,7 +1185,7 @@ function nav(n,btn){
   if(n==='historial'){popHistSel();renderHistorial();}
   if(n==='alertas')renderAlerts();
   if(n==='cheques')renderCheques();
-  if(n==='vresumen'||n==='vstock'||n==='vmov'||n==='vdeuda')renderVinosAll();else updVTopbar();
+  if(n==='vresumen'||n==='vstock'||n==='vmov'||n==='vdeuda'||n==='vrepo')renderVinosAll();else updVTopbar();
 }
 function goLocal(lc,btn){
   document.querySelectorAll('.lnb').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
@@ -1684,7 +1708,7 @@ let vLocal = (()=>{try{return localStorage.getItem('vinito_vlocal')||'Wheelwrigh
 if(!VLOCALES.includes(vLocal))vLocal='Wheelwright';
 function setVLocal(l){vLocal=l;try{localStorage.setItem('vinito_vlocal',l)}catch(e){}renderVinosAll();}
 function updVTopbar(){
-  const enV=['view-vresumen','view-vstock','view-vmov','view-vdeuda'].some(id=>$f(id)&&$f(id).classList.contains('active'));
+  const enV=['view-vresumen','view-vstock','view-vmov','view-vdeuda','view-vrepo'].some(id=>$f(id)&&$f(id).classList.contains('active'));
   const puede=role==='admin'||role==='socio';
   $f('btn-vsync').style.display=enV&&puede?'':'none';
   $f('btn-vplan').style.display=enV&&role==='admin'?'':'none';
@@ -1711,13 +1735,13 @@ function tvClass(t){return 'tv tv-'+String(t||'').toLowerCase().normalize('NFD')
 function cepaChip(v){return v.var?`<span class="${tvClass(v.tipo)}" style="font-size:9px;padding:1px 6px">${esc(v.var)}</span>`:''}
 function nq(n){const r=Math.round(n*10)/10;return r.toLocaleString('es-AR')}
 function mapVino(r){return {id:r.id,nom:r.nombre,bod:r.bodega||'',var:r.varietal||'',ana:r.anada||'',tipo:r.tipo||'',prov:r.proveedor||'',
-  reg:r.region||'',locs:new Set(),costo:Number(r.costo)||0,pb:Number(r.precio_botella)||0,pc:Number(r.precio_copa)||0,cpb:Number(r.copas_por_botella)||5,min:Number(r.stock_minimo)||0,act:r.activo!==false};}
+  reg:r.region||'',ref:r.referente||'',locs:new Set(),costo:Number(r.costo)||0,pb:Number(r.precio_botella)||0,pc:Number(r.precio_copa)||0,cpb:Number(r.copas_por_botella)||5,min:Number(r.stock_minimo)||0,act:r.activo!==false};}
 function mapVMov(r){return {id:r.id,vid:r.vino_id,local:r.local,tipo:r.tipo,cant:Number(r.cantidad)||0,costo:Number(r.costo_unit)||0,
   precio:r.precio_unit==null?null:Number(r.precio_unit),fecha:r.fecha,nota:r.nota||'',grupo:r.grupo||null};}
 async function loadVinos(){
   // el usuario Lector no ve el stock de vinos
   const okV=role==='admin'||role==='socio';
-  ['nav-sec-vinos','nav-vresumen','nav-vstock','nav-vmov','nav-vdeuda'].forEach(id=>{const e=$f(id);if(e)e.style.display=okV?'':'none'});
+  ['nav-sec-vinos','nav-vresumen','nav-vstock','nav-vmov','nav-vdeuda','nav-vrepo'].forEach(id=>{const e=$f(id);if(e)e.style.display=okV?'':'none'});
   if(!okV){vinos=[];vmovs=[];bvinos=[];return;}
   try{const d=await api('/vinos/state');vinos=d.vinos.map(mapVino);vmovs=d.movimientos.map(mapVMov);
     bvinos=(d.boletaVinos||[]).map(r=>({bid:r.boleta_id,vid:r.vino_id,cant:Number(r.cantidad)||0,costo:Number(r.costo_unit)||0}));
@@ -1746,7 +1770,7 @@ function popVinoFilters(){
   $f('dl-varietales').innerHTML=uniq(vinos.map(v=>v.var)).map(b=>`<option value="${esc(b)}">`).join('');
   document.querySelectorAll('.vadm').forEach(e=>e.style.display=isA()?'':'none');
 }
-function renderVinosAll(){popVinoFilters();paintVLocal();renderVResumen();renderVStock();renderVMov();renderVDeuda();}
+function renderVinosAll(){popVinoFilters();paintVLocal();renderVResumen();renderVStock();renderVMov();renderVDeuda();renderVRepo();}
 
 // ---------- período ----------
 function onVPer(){$f('vr-custom').style.display=$f('vr-per').value==='custom'?'inline-flex':'none';renderVResumen();}
@@ -1968,6 +1992,55 @@ async function saveConteo(){
     closeModal('conteo');await loadVinos();renderVinosAll();toast(`Conteo guardado: ${r.contados} vinos, ${r.ajustes} ajuste${r.ajustes!==1?'s':''}`,'ok');}
   catch(e){toast(e.message,'err');}
 }
+
+// ---------- REPOSICIÓN ----------
+// Arma el pedido por proveedor y el mensaje para WhatsApp. Si el vino viene "DIRECTO"
+// de la bodega, el pedido se le hace a la bodega.
+let repoSel={};
+function provPedido(v){const p=(v.prov||'').trim();return !p||/^directo$/i.test(p)?(v.bod||'Sin proveedor'):p;}
+function nombreRef(r){const w=String(r||'').replace(/[0-9+()\-./]/g,' ').trim().split(/\s+/)[0]||'';return w?w.charAt(0).toUpperCase()+w.slice(1).toLowerCase():'';}
+function telRef(r){const d=String(r||'').replace(/\D/g,'');if(d.startsWith('54')&&d.length>=12)return d;if(d.length===10)return '549'+d;if(d.length===11&&d[0]==='0')return '549'+d.slice(1);return '';}
+function capWord(s){return String(s||'').toLowerCase().replace(/(^|[\s(])(\S)/g,(m,a,b)=>a+b.toUpperCase());}
+function renderVRepo(){
+  if(!$f('vp-t'))return;
+  const loc=vLocal,sm=stockMap(),q=$f('vp-q').value.toLowerCase(),pv=$f('vp-prov').value,soloSel=$f('vp-sel').checked;
+  const base=vinos.filter(v=>v.act&&enLocal(v,sm,loc));
+  const provs=uniq(base.map(provPedido));fillSel('vp-prov',provs,'Todos los proveedores');
+  const pick=id=>Number(repoSel[loc+'|'+id])||0;
+  const rows=base.filter(v=>(!pv||provPedido(v)===pv)&&(!q||(v.nom+' '+v.bod+' '+v.var+' '+sku(v.id)).toLowerCase().includes(q))&&(!soloSel||pick(v.id)>0))
+    .sort((a,b)=>(pick(b.id)>0)-(pick(a.id)>0)||stockDe(sm,a.id,loc)-stockDe(sm,b.id,loc)||a.nom.localeCompare(b.nom,'es'));
+  const LIM=300;
+  $f('vp-t').innerHTML=rows.length?rows.slice(0,LIM).map(v=>{const s=stockDe(sm,v.id,loc),bajo=v.min>0&&s<v.min;
+    return `<tr><td><div class="fw5" style="font-size:12px">${esc(v.nom)}</div><div style="font-size:10px;color:var(--tx3)">${esc([v.bod,v.ana].filter(Boolean).join(' · '))} ${cepaChip(v)}</div></td>
+      <td style="font-size:11px;color:var(--tx2)">${esc(provPedido(v))}</td>
+      <td style="text-align:right" class="fw5 ${s<=0?'c-err':''}">${nq(s)}${bajo?' <span class="badge b-x">bajo</span>':''}</td>
+      <td style="text-align:right;color:var(--tx3)">${v.min||'—'}</td>
+      <td><input type="number" min="0" step="1" placeholder="0" value="${pick(v.id)||''}" oninput="setRepo(${v.id},this.value)"></td></tr>`;}).join('')
+    :'<tr><td colspan="5" class="empty" style="padding:1.5rem">Sin vinos con esos filtros</td></tr>';
+  $f('vp-more').textContent=rows.length>LIM?`Mostrando ${LIM} de ${rows.length}. Filtrá por proveedor o producto.`:rows.length+' vinos · ordenados de menor a mayor stock';
+  renderRepoMsgs();
+}
+function setRepo(id,val){const k=vLocal+'|'+id,n=Number(val)||0;if(n>0)repoSel[k]=n;else delete repoSel[k];renderRepoMsgs();}
+function limpiarRepo(){Object.keys(repoSel).filter(k=>k.startsWith(vLocal+'|')).forEach(k=>delete repoSel[k]);renderVRepo();}
+function repoPedidos(){
+  const loc=vLocal,grupos={};
+  Object.entries(repoSel).forEach(([k,c])=>{const [l,id]=k.split('|');if(l!==loc||!(c>0))return;const v=vinoById(Number(id));if(!v)return;
+    const p=provPedido(v);(grupos[p]=grupos[p]||[]).push({v,c});});
+  return Object.entries(grupos).sort((a,b)=>a[0].localeCompare(b[0],'es')).map(([prov,items])=>{
+    const ref=(items.find(x=>x.v.ref)||{v:{}}).v.ref||'';const nom=nombreRef(ref);
+    const directo=items.every(x=>!x.v.prov||/^directo$/i.test(x.v.prov));
+    const lineas=items.sort((a,b)=>a.v.nom.localeCompare(b.v.nom,'es')).map(x=>`• ${x.c} x ${capWord(x.v.nom)}${x.v.var?' – '+capWord(x.v.var):''}${!directo&&x.v.bod?' ('+capWord(x.v.bod)+')':''}`);
+    const txt=`Hola${nom?' '+nom:''}! ¿Cómo estás? Te paso un pedido para Vinito ${loc}:\n\n${lineas.join('\n')}\n\n¿Me confirmarías disponibilidad y precios? Saludos`;
+    return {prov,ref,txt,tel:telRef(ref),bot:items.reduce((a,x)=>a+x.c,0)};});
+}
+function renderRepoMsgs(){
+  const ps=repoPedidos();window._repoMsgs=ps;
+  $f('vp-msgs').innerHTML=ps.length?ps.map((p,i)=>`<div class="card"><div class="card-header"><span class="card-title">${esc(p.prov)} <span style="font-weight:400;color:var(--tx3)">· ${p.bot} botellas${p.ref?' · '+esc(p.ref):''}</span></span>
+      <div class="filters"><button class="btn btn-sm btn-wine" onclick="copiarRepo(${i})"><i class="ti ti-copy"></i> Copiar</button>${p.tel?`<a class="btn btn-sm" style="text-decoration:none" href="https://wa.me/${p.tel}?text=${encodeURIComponent(p.txt)}" target="_blank" rel="noopener"><i class="ti ti-brand-whatsapp"></i> Abrir WhatsApp</a>`:''}</div></div>
+      <div style="padding:1rem 1.25rem"><textarea id="vp-txt-${i}" style="width:100%;min-height:${40+p.txt.split('\n').length*21}px;font-family:var(--font);font-size:13px" oninput="window._repoMsgs[${i}].txt=this.value">${esc(p.txt)}</textarea></div></div>`).join('')
+    :'<div class="card"><div class="empty" style="padding:1.5rem">Cargá cantidades en la columna "Pedir" y acá se arma el mensaje para cada proveedor.</div></div>';
+}
+async function copiarRepo(i){const t=$f('vp-txt-'+i).value;try{await navigator.clipboard.writeText(t);}catch(e){const el=$f('vp-txt-'+i);el.select();document.execCommand('copy');}toast('Mensaje copiado','ok');}
 
 // ---------- DEUDAS ----------
 // Las facturas de vinos son boletas (esVino) con detalle de botellas en bvinos.
