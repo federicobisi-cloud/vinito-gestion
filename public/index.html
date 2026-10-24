@@ -294,6 +294,7 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
     <button class="nav-item" onclick="nav('vresumen',this)" id="nav-vresumen"><i class="ti ti-chart-bar"></i><span>Resumen</span></button>
     <button class="nav-item" onclick="nav('vstock',this)" id="nav-vstock"><i class="ti ti-bottle"></i><span>Stock</span></button>
     <button class="nav-item" onclick="nav('vmov',this)" id="nav-vmov"><i class="ti ti-arrows-exchange"></i><span>Movimientos</span></button>
+    <button class="nav-item" onclick="nav('vdeuda',this)" id="nav-vdeuda"><i class="ti ti-file-invoice"></i><span>Deudas</span></button>
     <span class="nav-sec">Locales</span>
     <div class="local-btns">
       <button class="lnb" onclick="goLocal('Centro',this)"><span class="ldot"></span><span>Centro</span><span class="lchip">Local 1</span></button>
@@ -508,12 +509,12 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
           <div class="stat-card"><div class="stat-label">Botellas en stock</div><div class="stat-value" id="vk-bt">0</div><div class="stat-sub" id="vk-bt-s"></div></div>
           <div class="stat-card"><div class="stat-label">Vinos bajo mínimo</div><div class="stat-value c-warn" id="vk-bm">0</div><div class="stat-sub" id="vk-bm-s"></div></div>
         </div>
-        <div class="shead" id="vr-per-lbl">Período</div>
+        <div class="shead" id="vr-per-lbl">Estado real de mercadería</div>
         <div class="stats-grid">
-          <div class="stat-card"><div class="stat-label">Botellas vendidas</div><div class="stat-value" id="vk-vd">0</div><div class="stat-sub" id="vk-vd-s"></div></div>
-          <div class="stat-card"><div class="stat-label">Venta estimada</div><div class="stat-value c-ok" id="vk-fa">$0</div><div class="stat-sub">a precio de carta</div></div>
-          <div class="stat-card"><div class="stat-label">Margen bruto estimado</div><div class="stat-value c-info" id="vk-mg">$0</div><div class="stat-sub" id="vk-mg-s"></div></div>
-          <div class="stat-card"><div class="stat-label">Mermas y ajustes (a costo)</div><div class="stat-value c-err" id="vk-me">$0</div><div class="stat-sub" id="vk-me-s"></div></div>
+          <div class="stat-card"><div class="stat-label">Mercadería en stock (a costo)</div><div class="stat-value" id="ve-st">$0</div><div class="stat-sub" id="ve-st-s"></div></div>
+          <div class="stat-card"><div class="stat-label">Cheques emitidos (sin acreditar)</div><div class="stat-value c-info" id="ve-ce">$0</div><div class="stat-sub" id="ve-ce-s"></div></div>
+          <div class="stat-card"><div class="stat-label">Cheques por emitir</div><div class="stat-value c-warn" id="ve-cp">$0</div><div class="stat-sub" id="ve-cp-s"></div></div>
+          <div class="stat-card"><div class="stat-label">Neto (stock − deuda)</div><div class="stat-value" id="ve-nt">$0</div><div class="stat-sub" id="ve-nt-s"></div></div>
         </div>
         <div class="vgrid2">
           <div class="card">
@@ -591,6 +592,38 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
             <tbody id="vm-t"></tbody>
           </table></div>
           <div id="vm-more" style="padding:.6rem 1.25rem;font-size:11px;color:var(--tx3)"></div>
+        </div>
+      </div>
+
+      <!-- VINOS · DEUDAS -->
+      <div class="view" id="view-vdeuda">
+        <div class="vloc-bar"><span class="vloc-lbl">Local</span><div class="tg vloc-tg"><button type="button" class="tgb" data-l="Wheelwright" onclick="setVLocal('Wheelwright')">Wheelwright</button><button type="button" class="tgb" data-l="Pichincha" onclick="setVLocal('Pichincha')">Pichincha</button></div></div>
+        <div class="stats-grid">
+          <div class="stat-card"><div class="stat-label">Cheques emitidos (sin acreditar)</div><div class="stat-value c-info" id="vd-ce">$0</div><div class="stat-sub" id="vd-ce-s"></div></div>
+          <div class="stat-card"><div class="stat-label">Cheques por emitir</div><div class="stat-value c-warn" id="vd-cp">$0</div><div class="stat-sub" id="vd-cp-s"></div></div>
+          <div class="stat-card"><div class="stat-label">Deuda total</div><div class="stat-value c-err" id="vd-tt">$0</div><div class="stat-sub" id="vd-tt-s"></div></div>
+          <div class="stat-card"><div class="stat-label">Pagado</div><div class="stat-value c-ok" id="vd-pg">$0</div><div class="stat-sub" id="vd-pg-s"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="filters">
+              <input class="sinp" placeholder="Buscar proveedor, N° o vino..." id="vd-q" oninput="renderVDeuda()">
+              <select class="fsel" id="vd-est" onchange="renderVDeuda()" style="width:auto">
+                <option value="pend">Pendientes</option>
+                <option value="deuda">Cheque por emitir</option>
+                <option value="cheque_pendiente">Cheque emitido</option>
+                <option value="pagado">Pagadas</option>
+                <option value="">Todas</option>
+              </select>
+            </div>
+            <div class="filters">
+              <button class="btn btn-sm btn-wine vadm" onclick="openVDeuda()"><i class="ti ti-plus"></i> Nueva factura</button>
+            </div>
+          </div>
+          <div class="tw"><table style="min-width:860px">
+            <thead><tr><th style="width:85px">Fecha</th><th>Proveedor</th><th style="width:120px">N° comp.</th><th style="text-align:right;width:80px">Botellas</th><th style="width:90px">Stock</th><th style="text-align:right;width:110px">Total</th><th style="width:140px">Estado</th><th style="width:120px"></th></tr></thead>
+            <tbody id="vd-t"></tbody>
+          </table></div>
         </div>
       </div>
 
@@ -688,6 +721,74 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
   <div class="mfoot">
     <button class="btn" onclick="closeModal('conteo')">Cancelar</button>
     <button class="btn btn-wine" onclick="saveConteo()"><i class="ti ti-check"></i> Guardar conteo</button>
+  </div>
+</div>
+</div>
+
+<!-- MODAL FACTURA DE VINOS (DEUDAS) -->
+<div class="overlay" id="modal-vdeuda">
+<div class="modal" style="width:760px">
+  <div class="mhead"><span class="mtitle">Nueva factura de vinos</span><button class="ab" onclick="closeModal('vdeuda')"><i class="ti ti-x"></i></button></div>
+  <div class="mbody">
+    <div class="fg2">
+      <div class="fg"><label>Local *</label><select id="d-local" onchange="renderDVinos()"><option>Wheelwright</option><option>Pichincha</option></select></div>
+      <div class="fg"><label>Proveedor *</label><select id="d-prov" onchange="onDProv()"></select></div>
+      <div class="fg"><label>Tipo</label><select id="d-td"><option value="factura">Factura A</option><option value="factura_b">Factura B</option><option value="remito">Remito</option></select></div>
+      <div class="fg"><label>N° de comprobante</label><input type="text" id="d-num" placeholder="0001-00012345"></div>
+      <div class="fg"><label>Fecha *</label><input type="date" id="d-fecha"></div>
+      <div class="fg"><label>Vencimiento</label><input type="date" id="d-venc"></div>
+      <div class="fg"><label>Total de la factura ($) *</label><input type="number" id="d-mon" min="0" step="0.01" placeholder="0.00"></div>
+      <div class="fg"><label>IVA</label><select id="d-iva"><option value="21">21%</option><option value="10.5">10,5%</option><option value="0">Exento / sin discriminar</option></select></div>
+      <div class="fg full"><label>Pago</label>
+        <div class="tg" style="margin-top:3px">
+          <button type="button" class="tgb on" data-ck="0" onclick="setDCk(false)">Cheque por emitir (a pagar)</button>
+          <button type="button" class="tgb" data-ck="1" onclick="setDCk(true)">Cheque emitido</button>
+        </div>
+      </div>
+      <div class="fg full" id="d-ck-box" style="display:none">
+        <div class="ck-box"><div class="fg2" style="margin:0">
+          <div class="fg"><label>N° de cheque / echeq</label><input type="text" id="d-ckn"></div>
+          <div class="fg"><label>Banco</label><input type="text" id="d-ckb"></div>
+          <div class="fg full"><label>Fecha de cobro del cheque</label><input type="date" id="d-ckf"></div>
+        </div></div>
+      </div>
+      <div class="fg full">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:400;cursor:pointer">
+          <input type="checkbox" id="d-suma" style="width:auto"> Sumar estas botellas al stock del local
+        </label>
+        <div id="d-suma-h" style="font-size:11px;color:var(--tx3);margin-top:3px"></div>
+      </div>
+    </div>
+    <div class="shead" style="display:flex;justify-content:space-between;align-items:center"><span>Vinos de la factura</span><span id="d-sub" style="text-transform:none;letter-spacing:0;font-weight:400"></span></div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+      <input type="text" id="d-q" placeholder="Buscar vino..." oninput="renderDVinos()" style="flex:1;min-width:180px">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;white-space:nowrap"><input type="checkbox" id="d-todos" onchange="renderDVinos()" style="width:auto"> Ver todos los vinos</label>
+    </div>
+    <div id="d-hint" style="font-size:11px;color:var(--tx3);margin-bottom:6px"></div>
+    <div class="tw" style="border:0.5px solid var(--br);border-radius:var(--r);max-height:340px;overflow:auto"><table><thead><tr><th>Vino</th><th style="text-align:right;width:70px">Stock</th><th style="width:90px">Botellas</th><th style="width:120px">Costo unit. $</th></tr></thead><tbody id="d-t"></tbody></table></div>
+    <div class="fg full" style="margin-top:1rem"><label>Notas</label><input type="text" id="d-notas" placeholder="Opcional"></div>
+  </div>
+  <div class="mfoot">
+    <button class="btn" onclick="closeModal('vdeuda')">Cancelar</button>
+    <button class="btn btn-wine" onclick="saveVDeuda()"><i class="ti ti-check"></i> Guardar factura</button>
+  </div>
+</div>
+</div>
+
+<!-- MODAL EMITIR CHEQUE -->
+<div class="overlay" id="modal-vck">
+<div class="modal" style="max-width:420px">
+  <div class="mhead"><span class="mtitle" id="vck-title">Emitir cheque</span><button class="ab" onclick="closeModal('vck')"><i class="ti ti-x"></i></button></div>
+  <div class="mbody">
+    <div class="fg2">
+      <div class="fg"><label>N° de cheque / echeq</label><input type="text" id="vck-n"></div>
+      <div class="fg"><label>Banco</label><input type="text" id="vck-b"></div>
+      <div class="fg full"><label>Fecha de cobro del cheque</label><input type="date" id="vck-f"></div>
+    </div>
+  </div>
+  <div class="mfoot">
+    <button class="btn" onclick="closeModal('vck')">Cancelar</button>
+    <button class="btn btn-wine" onclick="saveVCk()"><i class="ti ti-check"></i> Cheque emitido</button>
   </div>
 </div>
 </div>
@@ -957,7 +1058,7 @@ function mapBoleta(r){
     fecha:dstr(r.fecha), venc:dstr(r.vencimiento), pago:r.forma_pago, local:r.local||'',
     net:Number(r.neto)||0, iva:Number(r.iva)||0, monto:Number(r.monto)||0,
     desc:r.descripcion||'', notas:r.notas||'', estado:r.estado, ckid:r.cheque_id||null,
-    pagoReal:r.pago_real||null,
+    pagoReal:r.pago_real||null, esVino:r.es_vino===true, sumaStock:r.suma_stock===true,
   };
 }
 function mapCheque(r){
@@ -1051,7 +1152,7 @@ async function tryResumeSession(){
 }
 
 // ---------- NAV ----------
-const T={locales:'Vista por locales',boletas:'Boletas de compra',alertas:'Alertas y vencimientos',cheques:'Cheques emitidos',proveedores:'Proveedores',historial:'Historial de compras',vresumen:'Vinos · Resumen',vstock:'Vinos · Stock',vmov:'Vinos · Movimientos'};
+const T={locales:'Vista por locales',boletas:'Boletas de compra',alertas:'Alertas y vencimientos',cheques:'Cheques emitidos',proveedores:'Proveedores',historial:'Historial de compras',vresumen:'Vinos · Resumen',vstock:'Vinos · Stock',vmov:'Vinos · Movimientos',vdeuda:'Vinos · Deudas'};
 function nav(n,btn){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
@@ -1062,7 +1163,7 @@ function nav(n,btn){
   if(n==='historial'){popHistSel();renderHistorial();}
   if(n==='alertas')renderAlerts();
   if(n==='cheques')renderCheques();
-  if(n==='vresumen'||n==='vstock'||n==='vmov')renderVinosAll();else updVTopbar();
+  if(n==='vresumen'||n==='vstock'||n==='vmov'||n==='vdeuda')renderVinosAll();else updVTopbar();
 }
 function goLocal(lc,btn){
   document.querySelectorAll('.lnb').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
@@ -1193,7 +1294,7 @@ async function acredCk(cid){
   try {
     await api(`/cheques/${cid}/acreditar`, { method:'PUT' });
     await loadState();
-    renderCheques();renderBoletas();
+    renderCheques();renderBoletas();renderVinosAll();
     toast('Cheque acreditado · boleta marcada como pagada','ok');
   } catch (err) { toast(err.message,'err'); }
 }
@@ -1455,7 +1556,7 @@ function openModal(t, editBoleta, editProvObj){
   }
   $f('modal-'+t).classList.add('open');
 }
-function closeModal(t){$f('modal-'+t).classList.remove('open');if(t==='vino')editingVinoId=null;if(t==='boleta')editingBoletaId=null;if(t==='prov')editingProvId=null;if(t==='pagar')pagandoIds=null;}
+function closeModal(t){$f('modal-'+t).classList.remove('open');if(t==='vck')vckId=null;if(t==='vino')editingVinoId=null;if(t==='boleta')editingBoletaId=null;if(t==='prov')editingProvId=null;if(t==='pagar')pagandoIds=null;}
 function editB(id){
   if(!isA())return;
   const b=boletas.find(x=>x.id===id);
@@ -1509,7 +1610,7 @@ async function saveBoleta(){
     editingBoletaId = null;
     closeModal('boleta');
     await loadState();
-    renderBoletas();renderCheques();renderHistorial();renderLocales();renderProveedores();
+    renderBoletas();renderCheques();renderHistorial();renderLocales();renderProveedores();renderVinosAll();
     toast(wasEditing?'Boleta actualizada correctamente':(isCk?'Boleta cargada · cheque registrado como pendiente':'Boleta cargada correctamente'),'ok');
   } catch (err) { alert(err.message); }
 }
@@ -1585,7 +1686,7 @@ let vLocal = (()=>{try{return localStorage.getItem('vinito_vlocal')||'Wheelwrigh
 if(!VLOCALES.includes(vLocal))vLocal='Wheelwright';
 function setVLocal(l){vLocal=l;try{localStorage.setItem('vinito_vlocal',l)}catch(e){}renderVinosAll();}
 function updVTopbar(){
-  const enV=['view-vresumen','view-vstock','view-vmov'].some(id=>$f(id)&&$f(id).classList.contains('active'));
+  const enV=['view-vresumen','view-vstock','view-vmov','view-vdeuda'].some(id=>$f(id)&&$f(id).classList.contains('active'));
   const puede=role==='admin'||role==='socio';
   $f('btn-vsync').style.display=enV&&puede?'':'none';
   $f('btn-vplan').style.display=enV&&role==='admin'?'':'none';
@@ -1618,9 +1719,10 @@ function mapVMov(r){return {id:r.id,vid:r.vino_id,local:r.local,tipo:r.tipo,cant
 async function loadVinos(){
   // el usuario Lector no ve el stock de vinos
   const okV=role==='admin'||role==='socio';
-  ['nav-sec-vinos','nav-vresumen','nav-vstock','nav-vmov'].forEach(id=>{const e=$f(id);if(e)e.style.display=okV?'':'none'});
-  if(!okV){vinos=[];vmovs=[];return;}
+  ['nav-sec-vinos','nav-vresumen','nav-vstock','nav-vmov','nav-vdeuda'].forEach(id=>{const e=$f(id);if(e)e.style.display=okV?'':'none'});
+  if(!okV){vinos=[];vmovs=[];bvinos=[];return;}
   try{const d=await api('/vinos/state');vinos=d.vinos.map(mapVino);vmovs=d.movimientos.map(mapVMov);
+    bvinos=(d.boletaVinos||[]).map(r=>({bid:r.boleta_id,vid:r.vino_id,cant:Number(r.cantidad)||0,costo:Number(r.costo_unit)||0}));
     const byId=new Map(vinos.map(v=>[v.id,v]));(d.vinoLocales||[]).forEach(x=>{const v=byId.get(x.vino_id);if(v)v.locs.add(x.local)});}
   catch(e){console.warn('Vinos no disponibles:',e.message);}
 }
@@ -1646,7 +1748,7 @@ function popVinoFilters(){
   $f('dl-varietales').innerHTML=uniq(vinos.map(v=>v.var)).map(b=>`<option value="${esc(b)}">`).join('');
   document.querySelectorAll('.vadm').forEach(e=>e.style.display=isA()?'':'none');
 }
-function renderVinosAll(){popVinoFilters();paintVLocal();renderVResumen();renderVStock();renderVMov();}
+function renderVinosAll(){popVinoFilters();paintVLocal();renderVResumen();renderVStock();renderVMov();renderVDeuda();}
 
 // ---------- período ----------
 function onVPer(){$f('vr-custom').style.display=$f('vr-per').value==='custom'?'inline-flex':'none';renderVResumen();}
@@ -1666,7 +1768,7 @@ function renderVResumen(){
   if(!$f('vr-top'))return;
   const loc=vLocal,tp=$f('vr-tipo').value,bo=$f('vr-bodega').value,pr=$f('vr-prov').value;
   const per=vPeriodo();
-  $f('vr-per-lbl').textContent=per.l+' · '+loc;
+  $f('vr-per-lbl').textContent='Estado real de mercadería · '+loc;
   const sm=stockMap();
   const okV=v=>enLocal(v,sm,loc)&&(!tp||v.tipo===tp)&&(!bo||v.bod===bo)&&(!pr||v.prov===pr);
   const vs=vinos.filter(okV),ids=new Set(vs.map(v=>v.id));
@@ -1682,13 +1784,13 @@ function renderVResumen(){
   const ms=vmovs.filter(x=>ids.has(x.vid)&&(!loc||x.local===loc)&&enPer(x.fecha,per));
   const vend=ms.filter(x=>x.tipo==='venta'||x.tipo==='copa');
   const botV=vend.reduce((a,x)=>a-x.cant,0),botC=vend.filter(x=>x.tipo==='copa').reduce((a,x)=>a-x.cant,0);
-  const fac=vend.reduce((a,x)=>a-x.cant*(x.precio||0),0),cv=vend.reduce((a,x)=>a-x.cant*x.costo,0);
-  const mer=ms.filter(x=>['rotura','consumo','ajuste'].includes(x.tipo)).reduce((a,x)=>a-x.cant*x.costo,0);
-  const merB=ms.filter(x=>['rotura','consumo','ajuste'].includes(x.tipo)).reduce((a,x)=>a-x.cant,0);
-  $f('vk-vd').textContent=nq(botV);$f('vk-vd-s').textContent=botC?nq(botC)+' abiertas para copas':'';
-  $f('vk-fa').textContent=fmt(fac);
-  $f('vk-mg').textContent=fmt(fac-cv);$f('vk-mg-s').textContent=fac>0?Math.round((fac-cv)/fac*100)+'% sobre venta':'';
-  $f('vk-me').textContent=fmt(mer);$f('vk-me-s').textContent=nq(merB)+' botellas';
+  // estado real: todo el stock del local a costo (sin filtros) contra lo que se debe de vinos de ese local
+  let stTot=0;vinos.forEach(v=>{const s=stockDe(sm,v.id,loc);if(s>0)stTot+=s*v.costo;});
+  const dz=deudaVinos(loc),deuda=dz.ce+dz.cp,neto=stTot-deuda;
+  $f('ve-st').textContent=fmt(stTot);$f('ve-st-s').textContent='todo el stock de '+loc;
+  $f('ve-ce').textContent=fmt(dz.ce);$f('ve-ce-s').textContent=dz.nce+' factura'+(dz.nce!==1?'s':'');
+  $f('ve-cp').textContent=fmt(dz.cp);$f('ve-cp-s').textContent=dz.ncp+' factura'+(dz.ncp!==1?'s':'');
+  $f('ve-nt').textContent=fmt(neto);$f('ve-nt').className='stat-value '+(neto>=0?'c-ok':'c-err');$f('ve-nt-s').textContent='se debe '+fmt(deuda);
   // ranking
   const rk={};vend.forEach(x=>{const r=rk[x.vid]||(rk[x.vid]={b:0,c:0,f:0,k:0});r.b-=x.cant;if(x.tipo==='copa')r.c-=x.cant;r.f-=x.cant*(x.precio||0);r.k-=x.cant*x.costo;});
   const ord=$f('vr-rk').value;
@@ -1781,7 +1883,7 @@ function renderVMov(){
 }
 async function delVMov(id){
   if(!isA())return;const x=vmovs.find(m=>m.id===id);
-  if(!confirm(x&&x.grupo?'¿Eliminar esta transferencia? Se borran las dos partes (origen y destino).':'¿Eliminar este movimiento?'))return;
+  if(!confirm(x&&x.grupo&&x.grupo.startsWith('tr-')?'¿Eliminar esta transferencia? Se borran las dos partes (origen y destino).':'¿Eliminar este movimiento?'))return;
   try{await api('/vinos/movimientos/'+id,{method:'DELETE'});await loadVinos();renderVinosAll();toast('Movimiento eliminado','ok');}catch(e){toast(e.message,'err');}
 }
 
@@ -1869,6 +1971,141 @@ async function saveConteo(){
   if(!items.length){toast('No cargaste ninguna cantidad','warn');return;}
   try{const r=await api('/vinos/conteo',{method:'POST',body:JSON.stringify({local:$f('c-local').value,fecha:$f('c-fecha').value,items})});
     closeModal('conteo');await loadVinos();renderVinosAll();toast(`Conteo guardado: ${r.contados} vinos, ${r.ajustes} ajuste${r.ajustes!==1?'s':''}`,'ok');}
+  catch(e){toast(e.message,'err');}
+}
+
+// ---------- DEUDAS ----------
+// Las facturas de vinos son boletas (esVino) con detalle de botellas en bvinos.
+// estado 'deuda' = cheque por emitir · 'cheque_pendiente' = cheque emitido · 'pagado'.
+let bvinos = [];
+const BLOC = { Wheelwright:'Centro', Pichincha:'Pichincha' }; // en Boletas, Wheelwright figura como "Centro"
+const PRIMERAS_SIN_STOCK = 9; // las primeras 9 facturas ya estaban contadas en el stock
+const DEST = {
+  deuda:'<span class="badge b-x"><i class="ti ti-clock" style="font-size:10px"></i> Cheque por emitir</span>',
+  cheque_pendiente:'<span class="badge b-c"><i class="ti ti-writing" style="font-size:10px"></i> Cheque emitido</span>',
+  pagado:'<span class="badge b-p"><i class="ti ti-check" style="font-size:10px"></i> Pagado</span>',
+};
+function vBoletas(loc){return boletas.filter(b=>b.esVino&&(!loc||b.local===BLOC[loc]))}
+function deudaVinos(loc){
+  const bs=vBoletas(loc),ce=bs.filter(b=>b.estado==='cheque_pendiente'),cp=bs.filter(b=>b.estado==='deuda');
+  return {ce:ce.reduce((a,b)=>a+b.monto,0),cp:cp.reduce((a,b)=>a+b.monto,0),nce:ce.length,ncp:cp.length};
+}
+let vdOpen=new Set();
+function renderVDeuda(){
+  if(!$f('vd-t'))return;
+  const loc=vLocal,q=$f('vd-q').value.toLowerCase(),es=$f('vd-est').value,A=isA();
+  const all=vBoletas(loc),dz=deudaVinos(loc),pg=all.filter(b=>b.estado==='pagado');
+  $f('vd-ce').textContent=fmt(dz.ce);$f('vd-ce-s').textContent=dz.nce+' factura'+(dz.nce!==1?'s':'');
+  $f('vd-cp').textContent=fmt(dz.cp);$f('vd-cp-s').textContent=dz.ncp+' factura'+(dz.ncp!==1?'s':'');
+  $f('vd-tt').textContent=fmt(dz.ce+dz.cp);$f('vd-tt-s').textContent=loc;
+  $f('vd-pg').textContent=fmt(pg.reduce((a,b)=>a+b.monto,0));$f('vd-pg-s').textContent=pg.length+' factura'+(pg.length!==1?'s':'');
+  const items=bid=>bvinos.filter(x=>x.bid===bid);
+  const rows=all.filter(b=>{
+    if(es==='pend'&&b.estado==='pagado')return false;
+    if(es&&es!=='pend'&&b.estado!==es)return false;
+    if(q){const txt=(b.prov+' '+b.num+' '+items(b.id).map(x=>{const v=vinoById(x.vid);return v?v.nom+' '+v.bod:''}).join(' ')).toLowerCase();if(!txt.includes(q))return false;}
+    return true;}).sort((a,b)=>b.fecha.localeCompare(a.fecha)||b.id-a.id);
+  $f('vd-t').innerHTML=rows.length?rows.map(b=>{
+    const its=items(b.id),bot=its.reduce((a,x)=>a+x.cant,0),open=vdOpen.has(b.id);
+    const det=open?`<tr><td></td><td colspan="7" style="background:var(--bg2)"><table style="width:100%"><tbody>${its.map(x=>{const v=vinoById(x.vid)||{nom:'(vino borrado)',bod:''};
+      return `<tr><td style="font-size:12px">${esc(v.nom)} <span style="font-size:10px;color:var(--tx3)">${esc(v.bod||'')}</span></td><td style="text-align:right;font-size:12px;width:90px">${nq(x.cant)} bot.</td><td style="text-align:right;font-size:11px;color:var(--tx3);width:110px">${fmt(x.costo)} c/u</td><td style="text-align:right;font-size:12px;width:120px">${fmt(x.cant*x.costo)}</td></tr>`}).join('')||'<tr><td style="color:var(--tx3);font-size:12px">Sin detalle de vinos</td></tr>'}</tbody></table></td></tr>`:'';
+    return `<tr>
+      <td style="font-size:11px">${fD(b.fecha)}</td>
+      <td><div class="fw5" style="font-size:12px">${esc(b.prov)}</div>${b.venc&&b.estado!=='pagado'?`<div style="font-size:10px;color:var(--tx3)">vence ${fD(b.venc)}</div>`:''}</td>
+      <td style="font-size:11px;color:var(--tx2);white-space:nowrap">${dLbl(b)} ${esc(b.num||'s/n')}</td>
+      <td style="text-align:right"><button class="ab" title="Ver vinos" onclick="toggleVD(${b.id})" style="width:auto;padding:0 6px;font-size:12px">${nq(bot)} <i class="ti ti-chevron-${open?'up':'down'}"></i></button></td>
+      <td>${b.sumaStock?'<span class="pill pill-b" style="white-space:nowrap">Sumó stock</span>':'<span class="pill" style="white-space:nowrap">No suma</span>'}</td>
+      <td style="text-align:right" class="fw5">${fmt(b.monto)}</td>
+      <td>${DEST[b.estado]||estadoBadge(b)}</td>
+      <td style="${A?'':'display:none'}">
+        ${b.estado==='deuda'?`<button class="ab" title="Emitir cheque" onclick="openVCk(${b.id})"><i class="ti ti-writing"></i></button>`:''}
+        ${b.estado==='cheque_pendiente'?`<button class="ab" title="Cheque acreditado (pagada)" onclick="acredPorB(${b.id})"><i class="ti ti-building-bank"></i></button>`:''}
+        <button class="ab" title="Editar datos de la boleta" onclick="editB(${b.id})"><i class="ti ti-pencil"></i></button>
+        <button class="ab" title="Eliminar" onclick="delVDeuda(${b.id})"><i class="ti ti-trash"></i></button>
+      </td></tr>${det}`;}).join('')
+    :`<tr><td colspan="8" class="empty"><i class="ti ti-file-invoice"></i>${all.length?'Sin facturas con esos filtros':'Todavía no hay facturas de vinos para '+loc}</td></tr>`;
+}
+function toggleVD(id){if(vdOpen.has(id))vdOpen.delete(id);else vdOpen.add(id);renderVDeuda();}
+async function delVDeuda(id){
+  if(!isA())return;const b=boletas.find(x=>x.id===id);
+  if(!confirm('¿Eliminar esta factura?'+(b&&b.sumaStock?' También se descuentan del stock las botellas que había sumado.':'')))return;
+  try{await api('/boletas/'+id,{method:'DELETE'});await loadState();renderAll();toast('Factura eliminada','ok');}catch(e){toast(e.message,'err');}
+}
+// --- emitir cheque de una factura "por emitir" ---
+let vckId=null;
+function openVCk(id){if(!isA())return;const b=boletas.find(x=>x.id===id);if(!b)return;vckId=id;
+  $f('vck-title').textContent='Emitir cheque · '+b.prov+' '+fmt(b.monto);$f('vck-n').value='';$f('vck-b').value='';$f('vck-f').value=td();$f('modal-vck').classList.add('open');}
+async function saveVCk(){
+  if(!vckId)return;
+  try{await api(`/vinos/deudas/${vckId}/emitir-cheque`,{method:'POST',body:JSON.stringify({numero:$f('vck-n').value.trim(),banco:$f('vck-b').value.trim(),fechaCheque:$f('vck-f').value})});
+    closeModal('vck');await loadState();renderAll();toast('Cheque emitido · queda pendiente de acreditar','ok');}
+  catch(e){toast(e.message,'err');}
+}
+// --- nueva factura ---
+let dItems={},dCk=false;
+function setDCk(v){dCk=v;document.querySelectorAll('#modal-vdeuda [data-ck]').forEach(b=>b.classList.toggle('on',(b.dataset.ck==='1')===v));$f('d-ck-box').style.display=v?'':'none';}
+function provDeVinos(){return uniq(vinos.map(v=>v.prov))}
+// el proveedor de la boleta y el distribuidor de la planilla pueden estar escritos distinto
+function mismoProv(a,b){const x=normTxt(a),y=normTxt(b);if(!x||!y)return false;return x===y||(x.length>=4&&y.includes(x))||(y.length>=4&&x.includes(y));}
+function normTxt(s){return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,' ').trim()}
+function openVDeuda(){
+  if(!isA()){toast('Solo el administrador puede cargar facturas','warn');return;}
+  if(!vinos.length){toast('Primero sincronizá los vinos','warn');return;}
+  dItems={};
+  const nombres=uniq([...proveedores.map(p=>p.n),...provDeVinos()]);
+  const cnt=n=>vinos.filter(v=>mismoProv(v.prov,n)).length;
+  $f('d-prov').innerHTML='<option value="">Seleccionar...</option>'+nombres.map(n=>{const c=cnt(n);return `<option value="${esc(n)}">${esc(n)}${c?` (${c} vinos)`:''}</option>`}).join('');
+  $f('d-local').value=vLocal;$f('d-fecha').value=td();
+  ['d-num','d-venc','d-mon','d-notas','d-q','d-ckn','d-ckb'].forEach(i=>$f(i).value='');$f('d-ckf').value=td();
+  $f('d-td').value='factura';$f('d-iva').value='21';$f('d-todos').checked=false;setDCk(false);
+  const n=boletas.filter(b=>b.esVino).length,suma=n>=PRIMERAS_SIN_STOCK;
+  $f('d-suma').checked=suma;
+  $f('d-suma-h').textContent=suma?`Ya hay ${n} facturas de vinos cargadas: desde ahora las botellas suman al stock.`
+    :`Factura ${n+1} de las primeras ${PRIMERAS_SIN_STOCK}: no suma stock porque esas botellas ya están en el stock contado. Las siguientes suman solas.`;
+  renderDVinos();$f('modal-vdeuda').classList.add('open');
+}
+function onDProv(){$f('d-todos').checked=false;$f('d-q').value='';renderDVinos();}
+function renderDVinos(){
+  const loc=$f('d-local').value,prov=$f('d-prov').value,q=$f('d-q').value.toLowerCase(),todos=$f('d-todos').checked,sm=stockMap();
+  // vinos ya comprados a este proveedor también cuentan como suyos
+  const comprados=new Set(bvinos.filter(x=>{const b=boletas.find(y=>y.id===x.bid);return b&&b.prov===prov}).map(x=>x.vid));
+  const delProv=v=>mismoProv(v.prov,prov)||comprados.has(v.id);
+  let base=vinos.filter(v=>v.act||dItems[v.id]);let hint='';
+  if(!prov&&!todos){hint='Elegí el proveedor para ver solo sus vinos.';base=[];}
+  else if(!todos){const f=base.filter(delProv);
+    if(f.length){base=f;hint=`${f.length} vinos de ${prov}. Si falta alguno, tildá "Ver todos los vinos".`;}
+    else{hint=`Ningún vino de la carta tiene a ${prov} como distribuidor: se muestran todos.`;}}
+  $f('d-hint').textContent=hint;
+  const sel=Object.keys(dItems).map(Number).filter(id=>Number(dItems[id].c)>0);
+  const vs=base.filter(v=>!q||(v.nom+' '+v.bod+' '+v.var+' '+sku(v.id)).toLowerCase().includes(q));
+  // los ya cargados quedan siempre arriba aunque no coincidan con el filtro
+  const ids=new Set(vs.map(v=>v.id));const extra=sel.filter(id=>!ids.has(id)).map(vinoById).filter(Boolean);
+  const lista=[...extra,...vs].sort((a,b)=>(dItems[b.id]&&Number(dItems[b.id].c)>0?1:0)-(dItems[a.id]&&Number(dItems[a.id].c)>0?1:0)||(a.tipo+a.nom).localeCompare(b.tipo+b.nom,'es'));
+  $f('d-t').innerHTML=lista.length?lista.slice(0,250).map(v=>{const it=dItems[v.id]||{};
+    return `<tr><td><div class="fw5" style="font-size:12px">${esc(v.nom)}</div><div style="font-size:10px;color:var(--tx3)">${esc([v.bod,v.ana].filter(Boolean).join(' · '))} ${cepaChip(v)}</div></td>
+      <td style="text-align:right;font-size:12px;color:var(--tx2)">${nq(stockDe(sm,v.id,loc))}</td>
+      <td><input type="number" min="0" step="1" value="${it.c??''}" placeholder="0" oninput="setDItem(${v.id},'c',this.value)"></td>
+      <td><input type="number" min="0" step="0.01" value="${it.k??(v.costo||'')}" oninput="setDItem(${v.id},'k',this.value)"></td></tr>`}).join('')
+    :`<tr><td colspan="4" class="empty" style="padding:1.5rem">${prov||todos?'Sin vinos con esa búsqueda':'Elegí un proveedor'}</td></tr>`;
+  updDSub();
+}
+function setDItem(id,k,val){const v=vinoById(id);const it=dItems[id]||(dItems[id]={k:v?v.costo:0});it[k]=val;updDSub();}
+function updDSub(){
+  let b=0,t=0,n=0;Object.entries(dItems).forEach(([id,it])=>{const c=Number(it.c)||0;if(c>0){b+=c;t+=c*(Number(it.k)||0);n++;}});
+  $f('d-sub').textContent=n?`${n} etiqueta${n!==1?'s':''} · ${nq(b)} botellas · ${fmt(t)} a costo`:'';
+}
+async function saveVDeuda(){
+  const items=Object.entries(dItems).map(([id,it])=>({vinoId:Number(id),cantidad:Number(it.c)||0,costoUnit:Number(it.k)||0})).filter(i=>i.cantidad>0);
+  const prov=$f('d-prov').value,mon=Number($f('d-mon').value)||0,tdv=$f('d-td').value;
+  if(!prov){toast('Elegí el proveedor','warn');return;}
+  if(!$f('d-fecha').value){toast('Completá la fecha','warn');return;}
+  if(!(mon>0)){toast('Ingresá el total de la factura','warn');return;}
+  if(!items.length){toast('Cargá al menos un vino con cantidad','warn');return;}
+  const body={local:$f('d-local').value,proveedor:prov,numero:$f('d-num').value.trim(),fecha:$f('d-fecha').value,vencimiento:$f('d-venc').value||null,
+    tipoDoc:tdv==='remito'?'remito':'factura',tipoFact:tdv==='factura_b'?'B':'A',iva:Number($f('d-iva').value),monto:mon,notas:$f('d-notas').value.trim(),
+    sumaStock:$f('d-suma').checked,chequeEmitido:dCk,cheque:dCk?{numero:$f('d-ckn').value.trim(),banco:$f('d-ckb').value.trim(),fechaCheque:$f('d-ckf').value}:null,items};
+  try{await api('/vinos/deudas',{method:'POST',body:JSON.stringify(body)});closeModal('vdeuda');await loadState();renderAll();
+    toast('Factura cargada'+(body.sumaStock?' · botellas sumadas al stock':' · no suma stock'),'ok');}
   catch(e){toast(e.message,'err');}
 }
 
