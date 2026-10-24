@@ -889,7 +889,8 @@ function columnasCatalogo(filas) {
       // costo: primero la columna del año ("COSTO 26"); si esa celda está vacía, la columna COSTO
       costo: H.findIndex((x) => x.startsWith('COSTO') && x !== 'COSTO'),
       costoAlt: idx('COSTO'),
-      precio: idx('PRECIO CARTA', 'PRECIO'),
+      // precio de carta: "PRECIO CARTA" (Pichincha) o "CARTA 26" (Wheelwright)
+      precio: idx('PRECIO CARTA', 'PRECIO') >= 0 ? idx('PRECIO CARTA', 'PRECIO') : H.findIndex((x) => x.startsWith('CARTA')),
     };
   }
   // sin encabezados: formato viejo (A tipo, C etiqueta, D cepa, F bodega, H región, I distribuidor, L costo, N precio)
@@ -927,7 +928,7 @@ async function syncCatalogo(client, local, url) {
         `UPDATE vinos SET nombre=$1, varietal=$2, bodega=$3, tipo=$4, region=$5, proveedor=COALESCE($6, proveedor),
            costo=CASE WHEN $7::numeric > 0 THEN $7::numeric ELSE costo END,
            precio_botella=CASE WHEN $8::numeric > 0 THEN $8::numeric ELSE precio_botella END,
-           clave=$9, activo=true, updated_at=now()
+           clave=$9, updated_at=now()
          WHERE id=$10`,
         [etiqueta, cepa, bodega, tipo, region, proveedor, costo, precio, clave, id]
       );
