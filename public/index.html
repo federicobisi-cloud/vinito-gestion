@@ -514,6 +514,16 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
           <div class="stat-card"><div class="stat-label">Cheques por emitir</div><div class="stat-value c-warn" id="ve-cp">$0</div><div class="stat-sub" id="ve-cp-s"></div></div>
           <div class="stat-card stat-neto"><div class="stat-label">Neto</div><div class="stat-value" id="ve-nt">$0</div><div class="stat-sub" id="ve-nt-s"></div></div>
         </div>
+        <div class="card" id="vc-card">
+          <div class="card-header">
+            <span class="card-title">Consumo <span style="font-weight:400;color:var(--tx3)">· stock anterior + reposición − stock actual</span></span>
+            <div class="filters">
+              <select class="fsel" id="vc-gr" onchange="$f('vc-per').value='';renderVConsumo()"><option value="sem">Semanal</option><option value="mes">Mensual</option><option value="anio">Anual</option></select>
+              <select class="fsel" id="vc-per" onchange="renderVConsumo()"></select>
+            </div>
+          </div>
+          <div id="vc-body"></div>
+        </div>
         <div class="vgrid2">
           <div class="card">
             <div class="card-header">
@@ -1747,6 +1757,75 @@ async function loadVinos(){
     bvinos=(d.boletaVinos||[]).map(r=>({bid:r.boleta_id,vid:r.vino_id,cant:Number(r.cantidad)||0,costo:Number(r.costo_unit)||0}));
     const byId=new Map(vinos.map(v=>[v.id,v]));(d.vinoLocales||[]).forEach(x=>{const v=byId.get(x.vino_id);if(v)v.locs.add(x.local)});}
   catch(e){console.warn('Vinos no disponibles:',e.message);}
+  try{vcons=await api('/vinos/consumo');}catch(e){vcons={cierres:[],items:[]};console.warn('Consumo no disponible:',e.message);}
+}
+
+// ---------- CONSUMO (entre cierres de stock) ----------
+// Cada sincronización guarda un cierre (foto del stock + reposición cargada en la planilla).
+// consumo de cada intervalo = stock del cierre anterior + reposición − stock del cierre.
+// El intervalo se asigna a la semana/mes/año de la fecha del cierre que lo termina.
+let vcons={cierres:[],items:[]};
+function vcIntervalos(loc){
+  const cs=vcons.cierres.filter(c=>c.local===loc).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  const it={};vcons.items.forEach(x=>{(it[x.cierre_id]||(it[x.cierre_id]=new Map())).set(x.vino_id,{s:Number(x.stock)||0,r:Number(x.reposicion)||0})});
+  const out=[];
+  for(let k=1;k<cs.length;k++){
+    const prev=it[cs[k-1].id]||new Map(),cur=it[cs[k].id]||new Map(),rows=new Map();
+    new Set([...prev.keys(),...cur.keys()]).forEach(vid=>{const p=prev.get(vid),c=cur.get(vid);
+      const ini=p?p.s:0,rep=c?c.r:0,fin=c?c.s:0;rows.set(vid,{ini,rep,fin,cons:ini+rep-fin});});
+    out.push({desde:cs[k-1].fecha,hasta:cs[k].fecha,rows});
+  }
+  return {cierres:cs,ints:out};
+}
+function vcLunes(f){const d=new Date(f+'T12:00:00');d.setDate(d.getDate()-((d.getDay()+6)%7));return d.toISOString().slice(0,10)}
+function vcClave(f,gr){return gr==='mes'?f.slice(0,7):gr==='anio'?f.slice(0,4):vcLunes(f)}
+function vcEtiqueta(k,gr){
+  const M=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  if(gr==='mes')return M[Number(k.slice(5,7))-1].replace(/^./,c=>c.toUpperCase())+' '+k.slice(0,4);
+  if(gr==='anio')return 'Año '+k;
+  return 'Cierre semana del '+fD(k);
+}
+function renderVConsumo(){
+  const body=$f('vc-body');if(!body)return;
+  const loc=vLocal,gr=$f('vc-gr').value,tp=$f('vr-tipo').value,bo=$f('vr-bodega').value,pr=$f('vr-prov').value;
+  const {cierres,ints}=vcIntervalos(loc);
+  const sel=$f('vc-per');
+  if(!ints.length){
+    sel.innerHTML='';sel.style.display='none';
+    body.innerHTML=`<div class="empty" style="padding:1.5rem">${cierres.length
+      ?`Punto de partida: <b>${fD(cierres[0].fecha)}</b> (${nq(vcons.items.filter(x=>x.cierre_id===cierres[0].id).reduce((a,x)=>a+(Number(x.stock)||0),0))} botellas). El consumo aparece desde la próxima sincronización (lunes), con la columna REPOSICION cargada.`
+      :'Todavía no hay cierres de stock. La próxima sincronización de '+esc(loc)+' queda como punto de partida.'}</div>`;
+    return;
+  }
+  sel.style.display='';
+  const keys=[...new Set(ints.map(x=>vcClave(x.hasta,gr)))].sort().reverse();
+  const cur=keys.includes(sel.value)?sel.value:keys[0];
+  sel.innerHTML=keys.map(k=>`<option value="${k}">${vcEtiqueta(k,gr)}</option>`).join('');sel.value=cur;
+  const grupo=ints.filter(x=>vcClave(x.hasta,gr)===cur);
+  const desde=grupo[0].desde,hasta=grupo[grupo.length-1].hasta;
+  // suma los intervalos del período por vino (inicial = el del primer intervalo, final = el del último)
+  const ag=new Map();
+  grupo.forEach((g,gi)=>g.rows.forEach((r,vid)=>{const a=ag.get(vid)||{ini:null,rep:0,fin:0,cons:0};
+    if(a.ini===null)a.ini=gi===0?r.ini:0;a.rep+=r.rep;a.cons+=r.cons;a.fin=r.fin;ag.set(vid,a);}));
+  const ok=v=>v&&(!tp||v.tipo===tp)&&(!bo||v.bod===bo)&&(!pr||v.prov===pr);
+  const rows=[...ag.entries()].map(([vid,a])=>({v:vinoById(vid),...a})).filter(r=>ok(r.v));
+  const pos=rows.filter(r=>r.cons>0).sort((a,b)=>b.cons-a.cons),neg=rows.filter(r=>r.cons<0).sort((a,b)=>a.cons-b.cons);
+  const bot=pos.reduce((a,r)=>a+r.cons,0),vc=pos.reduce((a,r)=>a+r.cons*r.v.costo,0),vv=pos.reduce((a,r)=>a+r.cons*r.v.pb,0);
+  const rep=rows.reduce((a,r)=>a+r.rep,0);
+  const fila=r=>`<tr><td><div class="fw5">${esc(r.v.nom)}</div><div style="font-size:10px;color:var(--tx3)">${esc([sku(r.v.id),r.v.bod,r.v.var].filter(Boolean).join(' · '))}</div></td>
+    <td style="text-align:right">${nq(r.ini||0)}</td><td style="text-align:right">${r.rep?'+'+nq(r.rep):'—'}</td><td style="text-align:right">${nq(r.fin)}</td>
+    <td style="text-align:right" class="fw5 ${r.cons<0?'c-err':''}">${nq(r.cons)}</td><td style="text-align:right">${fmt(r.cons*r.v.costo)}</td></tr>`;
+  const head='<thead><tr><th>Vino</th><th style="text-align:right">Inicial</th><th style="text-align:right">Reposición</th><th style="text-align:right">Final</th><th style="text-align:right">Consumo</th><th style="text-align:right">Valor costo</th></tr></thead>';
+  body.innerHTML=`<div style="font-size:12px;color:var(--tx3);margin:0 0 .75rem">Del ${fD(desde)} al ${fD(hasta)} · ${grupo.length} cierre${grupo.length!==1?'s':''}${tp||bo||pr?' · con filtros':''}</div>
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-label">Botellas consumidas</div><div class="stat-value">${nq(bot)}</div><div class="stat-sub">${pos.length} etiqueta${pos.length!==1?'s':''}</div></div>
+      <div class="stat-card"><div class="stat-label">Consumo a costo</div><div class="stat-value">${fmt(vc)}</div><div class="stat-sub">${loc}</div></div>
+      <div class="stat-card"><div class="stat-label">Consumo a precio carta</div><div class="stat-value c-ok">${fmt(vv)}</div><div class="stat-sub">${vc>0?'markup '+nq(vv/vc)+'x':''}</div></div>
+      <div class="stat-card"><div class="stat-label">Reposición</div><div class="stat-value c-info">${nq(rep)}</div><div class="stat-sub">botellas ingresadas</div></div>
+    </div>
+    ${neg.length?`<div style="margin:.75rem 0;padding:.6rem .8rem;border-radius:8px;background:var(--bg2);font-size:12px"><b class="c-err">⚠ ${neg.length} vino${neg.length!==1?'s':''} con consumo negativo</b> · hay más botellas que al inicio sin reposición cargada: falta cargar la REPOSICION o hubo un error de conteo.</div>`:''}
+    <div class="tw"><table>${head}<tbody>${pos.slice(0,30).map(fila).join('')||'<tr><td colspan="6" class="empty" style="padding:1.5rem">Sin consumo en el período</td></tr>'}</tbody></table></div>
+    ${neg.length?`<div class="shead">Consumo negativo · revisar</div><div class="tw"><table>${head}<tbody>${neg.slice(0,30).map(fila).join('')}</tbody></table></div>`:''}`;
 }
 function vinoById(id){return vinos.find(v=>v.id===id)}
 function vLabel(v){return v.nom+(v.bod?' — '+v.bod:'')+(v.ana?' '+v.ana:'')}
@@ -1840,6 +1919,7 @@ function renderVResumen(){
   $f('vr-sr-tot').innerHTML=sr.length?`${sr.length} vinos · <b class="c-warn">${fmt(srTot)}</b> inmovilizados`:'';
   $f('vr-sr').innerHTML=sr.slice(0,30).map(r=>`<tr><td class="fw5">${esc(r.v.nom)}</td><td>${esc(r.v.bod)}</td><td style="text-align:right">${nq(r.s)}</td><td style="text-align:right">${fmt(r.s*r.v.costo)}</td><td style="font-size:11px;color:var(--tx3)">${ult[r.v.id]?fD(ult[r.v.id]):'Nunca'}</td></tr>`).join('')
     ||'<tr><td colspan="5" class="empty" style="padding:1.5rem">Todos los vinos con stock tuvieron ventas</td></tr>';
+  renderVConsumo();
 }
 
 // ---------- STOCK ----------
@@ -2190,7 +2270,9 @@ async function syncVinos(){
     const p=[];
     if(r.catalogo)p.push(`${r.catalogo.leidos} vinos en la carta (${r.catalogo.creados} nuevos)`);
     if(r.stock)p.push(`stock: ${r.stock.filas} contados, ${r.stock.ajustes} ajustes`);
+    if(r.stock&&r.stock.cierre)p.push(r.stock.cierre.primero?`punto de partida del consumo: ${fD(r.stock.cierre.fecha)}`:`cierre ${fD(r.stock.cierre.fecha)} · reposición ${nq(r.stock.cierre.reposicion)} bot.`);
     toast(vLocal+' sincronizado · '+p.join(' · '),'ok');
+    if(r.stock&&r.stock.repoError)setTimeout(()=>toast(r.stock.repoError,'warn'),6800);
     if(r.stock&&r.stock.noEncontrados.length)setTimeout(()=>toast(`${r.stock.noEncontrados.length} filas de la planilla de stock no coinciden con ningún vino: ${r.stock.noEncontrados.slice(0,3).join(', ')}…`,'warn'),3400);
     if(!r.stock&&isA())setTimeout(()=>toast('Falta vincular la planilla de stock de '+vLocal+' (botón Planillas)','info'),3400);
   }catch(e){toast(e.message,'err');}
@@ -2218,8 +2300,8 @@ function exportPlanillaStock(loc){
   if(typeof XLSX==='undefined'){toast('Librería no cargada, intentá de nuevo','warn');return;}
   const sm=stockMap();
   const vs=vinos.filter(v=>v.act&&enLocal(v,sm,loc)).sort((a,b)=>(a.tipo+a.bod+a.nom).localeCompare(b.tipo+b.bod+b.nom,'es'));
-  const rows=[['SKU','TIPO','ETIQUETA','CEPA','BODEGA','STOCK'],...vs.map(v=>[sku(v.id),v.tipo,v.nom,v.var,v.bod,''])];
-  const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:8},{wch:11},{wch:38},{wch:20},{wch:24},{wch:9}];
+  const rows=[['SKU','TIPO','ETIQUETA','CEPA','BODEGA','STOCK','REPOSICION'],...vs.map(v=>[sku(v.id),v.tipo,v.nom,v.var,v.bod,'',''])];
+  const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:8},{wch:11},{wch:38},{wch:20},{wch:24},{wch:9},{wch:12}];
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Stock');
   XLSX.writeFile(wb,`STOCK_VINOS_${loc.toUpperCase()}.xlsx`);toast('Modelo descargado: completá la columna STOCK','ok');
 }
