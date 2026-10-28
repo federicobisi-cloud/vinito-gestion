@@ -482,6 +482,24 @@ async function initVinos() {
       costo_unit NUMERIC
     );
     CREATE INDEX IF NOT EXISTS idx_bvinos_boleta ON boleta_vinos(boleta_id);
+    -- CIERRES de stock: cada sincronización de la planilla de stock guarda una foto del stock del local
+    -- (una por día; si se sincroniza dos veces el mismo día se reemplaza la foto y se suma la reposición).
+    -- consumo entre dos cierres = stock anterior + reposición − stock actual
+    CREATE TABLE IF NOT EXISTS vino_cierres (
+      id         SERIAL PRIMARY KEY,
+      local      TEXT NOT NULL,
+      fecha      DATE NOT NULL,
+      usuario    TEXT,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      UNIQUE (local, fecha)
+    );
+    CREATE TABLE IF NOT EXISTS vino_cierre_items (
+      cierre_id  INTEGER NOT NULL REFERENCES vino_cierres(id) ON DELETE CASCADE,
+      vino_id    INTEGER NOT NULL REFERENCES vinos(id) ON DELETE CASCADE,
+      stock      NUMERIC NOT NULL DEFAULT 0,
+      reposicion NUMERIC NOT NULL DEFAULT 0,
+      PRIMARY KEY (cierre_id, vino_id)
+    );
   `);
 }
 initVinos().catch((err) => console.error('Error creando tablas de vinos:', err));
@@ -519,6 +537,20 @@ app.get('/api/vinos/state', requireAdminOSocio, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Error al cargar los vinos' });
+  }
+});
+
+// Cierres de stock (fotos de cada sincronización) para calcular el consumo semanal/mensual/anual.
+app.get('/api/vinos/consumo', requireAdminOSocio, async (req, res) => {
+  try {
+    const [c, i] = await Promise.all([
+      pool.query("SELECT id, local, to_char(fecha,'YYYY-MM-DD') AS fecha FROM vino_cierres ORDER BY local, fecha"),
+      pool.query('SELECT cierre_id, vino_id, stock, reposicion FROM vino_cierre_items'),
+    ]);
+    res.json({ cierres: c.rows, items: i.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al cargar el consumo' });
   }
 });
 
@@ -965,7 +997,9 @@ async function syncStock(client, local, url, usuario) {
     if (iStock >= 0) {
       h = i;
       const etq = head.indexOf('ETIQUETA') >= 0 ? head.indexOf('ETIQUETA') : head.indexOf('ETIQUETAS');
-      cols = { stock: iStock, sku: head.indexOf('SKU'), tipo: head.indexOf('TIPO'), etiqueta: etq, cepa: head.indexOf('CEPA'), bodega: head.indexOf('BODEGA') };
+      cols = { stock: iStock, sku: head.indexOf('SKU'), tipo: head.indexOf('TIPO'), etiqueta: etq, cepa: head.indexOf('CEPA'), bodega: head.indexOf('BODEGA'),
+        // botellas que entraron desde el último cierre (no suma al STOCK de la planilla)
+        repo: head.findIndex((x) => x.startsWith('REPOSICION')) };
       break;
     }
   }
@@ -979,6 +1013,7 @@ async function syncStock(client, local, url, usuario) {
   const val = (f, k) => (k >= 0 && f[k] != null ? String(f[k]).trim() : '');
   const contados = new Map(); // vino_id -> { vino, contado } (si un vino aparece en dos filas, se suman)
   const skuPendientes = []; // filas sin SKU: se completan en la planilla después del COMMIT
+  const repoFilas = []; // filas con REPOSICION cargada: se vacían en la planilla después del COMMIT
   // cuántas veces aparece cada SKU: si es único se confía en él aunque el nombre en la planilla haya cambiado
   const skuCount = new Map();
   for (let i = h + 1; i < filas.length; i++) {
@@ -1024,8 +1059,11 @@ async function syncStock(client, local, url, usuario) {
     if (!vino) { res.noEncontrados.push(sku || `fila ${i + 1}`); continue; }
     res.filas++;
     if (!sku && cols.sku >= 0) skuPendientes.push({ fila: i + 1, sku: skuDe(vino.id) });
+    const repoCrudo = val(f, cols.repo);
+    const repo = repoCrudo === '' ? 0 : num(repoCrudo.replace(',', '.'));
+    if (repoCrudo !== '') repoFilas.push(i + 1);
     const prev = contados.get(vino.id);
-    contados.set(vino.id, { vino, contado: (prev ? prev.contado : 0) + contado });
+    contados.set(vino.id, { vino, contado: (prev ? prev.contado : 0) + contado, repo: (prev ? prev.repo : 0) + repo });
   }
   for (const { vino, contado } of contados.values()) {
     await vincularLocal(client, vino.id, local);
@@ -1050,11 +1088,67 @@ async function syncStock(client, local, url, usuario) {
          VALUES ($1,$2,'ajuste',$3,$4,$5,$6,$7)`,
         [vinoId, local, -s, num(vino && vino.costo), hoy, `Sincronización planilla de stock: no figura en la planilla (sistema ${s})`, usuario]
       );
+      stock.set(vinoId, 0);
       res.ajustes++;
     }
+    res.cierre = await guardarCierre(client, local, stock, contados, usuario);
   }
   if (filas.hoja && cols.sku >= 0) res._skus = { ...filas.hoja, colSku: cols.sku, pendientes: skuPendientes };
+  if (res.cierre && filas.hoja && cols.repo >= 0 && repoFilas.length) res._repo = { ...filas.hoja, colRepo: cols.repo, filas: repoFilas };
   return res;
+}
+
+// Fecha de hoy en Argentina (el servidor corre en UTC).
+function fechaAR() { return new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10); }
+
+// Guarda la foto del stock del local (cierre del día) con la reposición cargada en la planilla.
+// Si ya hubo un cierre hoy, se reemplaza el stock y la reposición se suma a la que ya estaba
+// (la columna REPOSICION se vacía después de cada sincronización, así no se cuenta dos veces).
+async function guardarCierre(client, local, stock, contados, usuario) {
+  const fecha = fechaAR();
+  const ex = await client.query('SELECT id FROM vino_cierres WHERE local=$1 AND fecha=$2', [local, fecha]);
+  let id;
+  const repoPrev = new Map();
+  if (ex.rows[0]) {
+    id = ex.rows[0].id;
+    const r = await client.query('SELECT vino_id, reposicion FROM vino_cierre_items WHERE cierre_id=$1 AND reposicion<>0', [id]);
+    r.rows.forEach((x) => repoPrev.set(x.vino_id, num(x.reposicion)));
+    await client.query('DELETE FROM vino_cierre_items WHERE cierre_id=$1', [id]);
+    await client.query('UPDATE vino_cierres SET usuario=$2, created_at=now() WHERE id=$1', [id, usuario]);
+  } else {
+    id = (await client.query('INSERT INTO vino_cierres (local, fecha, usuario) VALUES ($1,$2,$3) RETURNING id', [local, fecha, usuario])).rows[0].id;
+  }
+  const ids = new Set([...stock.keys(), ...repoPrev.keys(), ...contados.keys()]);
+  const vids = [], sts = [], reps = [];
+  let repoTot = 0;
+  for (const vid of ids) {
+    const s = num(stock.get(vid));
+    const rp = (repoPrev.get(vid) || 0) + (contados.has(vid) ? num(contados.get(vid).repo) : 0);
+    if (s === 0 && rp === 0) continue;
+    vids.push(vid); sts.push(s); reps.push(rp);
+    repoTot += rp;
+  }
+  if (vids.length) {
+    await client.query(
+      `INSERT INTO vino_cierre_items (cierre_id, vino_id, stock, reposicion)
+       SELECT $1, * FROM unnest($2::int[], $3::numeric[], $4::numeric[])`,
+      [id, vids, sts, reps]
+    );
+  }
+  const n = await client.query('SELECT COUNT(*)::int AS n FROM vino_cierres WHERE local=$1', [local]);
+  return { fecha, reposicion: repoTot, primero: n.rows[0].n === 1 };
+}
+
+// Vacía las celdas de REPOSICION que ya quedaron registradas en el cierre.
+async function limpiarReposicion(info) {
+  if (!info || !info.filas.length) return 0;
+  const letra = String.fromCharCode(65 + info.colRepo);
+  const titulo = info.title.replace(/'/g, "''");
+  await sheetsClient().spreadsheets.values.batchClear({
+    spreadsheetId: info.id,
+    requestBody: { ranges: info.filas.map((f) => `'${titulo}'!${letra}${f}`) },
+  });
+  return info.filas.length;
 }
 
 function requireAdminOSocio(req, res, next) {
@@ -1116,6 +1210,16 @@ app.post('/api/vinos/sync', requireAdminOSocio, async (req, res) => {
         out.stock.skuError = `No pude completar los SKU en la planilla de stock. Compartila como Editor con ${serviceAccountEmail() || 'la cuenta de servicio'}`;
       }
       delete out.stock._skus;
+    }
+    // la reposición ya quedó guardada en el cierre: se vacía la columna para la semana siguiente
+    if (out.stock && out.stock._repo) {
+      try {
+        out.stock.repoLimpiadas = await limpiarReposicion(out.stock._repo);
+      } catch (e) {
+        console.error('No se pudo vaciar REPOSICION:', e.message);
+        out.stock.repoError = 'La reposición quedó registrada pero no pude vaciar la columna REPOSICION: vaciala a mano para no contarla dos veces';
+      }
+      delete out.stock._repo;
     }
     res.json(out);
   } catch (err) {
