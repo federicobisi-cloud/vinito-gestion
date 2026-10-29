@@ -500,6 +500,13 @@ async function initVinos() {
       reposicion NUMERIC NOT NULL DEFAULT 0,
       PRIMARY KEY (cierre_id, vino_id)
     );
+    -- detalle por ubicación de cada conteo (ARRIBA, DEPOSITO, HELADERA...): queda guardado para siempre,
+    -- así la planilla del Drive puede ser una sola que se pisa cada semana.
+    -- vino_cierres.ubicaciones = [["ARRIBA",1611],["DEPOSITO",1415],...] (totales, en el orden de la planilla)
+    -- vino_cierre_items.ubicaciones = {"ARRIBA":3,"DEPOSITO":2,...}
+    ALTER TABLE vino_cierres ADD COLUMN IF NOT EXISTS ubicaciones JSONB;
+    ALTER TABLE vino_cierres ADD COLUMN IF NOT EXISTS historico BOOLEAN DEFAULT false;
+    ALTER TABLE vino_cierre_items ADD COLUMN IF NOT EXISTS ubicaciones JSONB;
   `);
 }
 initVinos().catch((err) => console.error('Error creando tablas de vinos:', err));
@@ -544,13 +551,57 @@ app.get('/api/vinos/state', requireAdminOSocio, async (req, res) => {
 app.get('/api/vinos/consumo', requireAdminOSocio, async (req, res) => {
   try {
     const [c, i] = await Promise.all([
-      pool.query("SELECT id, local, to_char(fecha,'YYYY-MM-DD') AS fecha FROM vino_cierres ORDER BY local, fecha"),
-      pool.query('SELECT cierre_id, vino_id, stock, reposicion FROM vino_cierre_items'),
+      pool.query("SELECT id, local, to_char(fecha,'YYYY-MM-DD') AS fecha, usuario, ubicaciones, historico FROM vino_cierres ORDER BY local, fecha"),
+      pool.query('SELECT cierre_id, vino_id, stock, reposicion, ubicaciones FROM vino_cierre_items'),
     ]);
     res.json({ cierres: c.rows, items: i.rows });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Error al cargar el consumo' });
+  }
+});
+
+// Carga un conteo viejo (ej. el primero, recuperado del historial de versiones del Drive) como cierre histórico.
+// No toca el stock actual ni los movimientos, y no entra en el cálculo de consumo.
+// body: { local, fecha:'YYYY-MM-DD', ubicaciones:[nombres en orden], items:[{ vino_id, stock, ubicaciones:{...} }] }
+app.post('/api/vinos/cierres/historico', requireAdmin, async (req, res) => {
+  const { local, fecha, items } = req.body || {};
+  const orden = Array.isArray(req.body && req.body.ubicaciones) ? req.body.ubicaciones : [];
+  if (!LOCALES_VINO.includes(local)) return res.status(400).json({ error: 'Elegí el local' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha || '')) return res.status(400).json({ error: 'Fecha inválida' });
+  if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'Sin vinos para cargar' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const ex = await client.query('SELECT id, historico FROM vino_cierres WHERE local=$1 AND fecha=$2', [local, fecha]);
+    if (ex.rows[0] && !ex.rows[0].historico) throw new Error('Ya hay un cierre real en esa fecha: no se pisa');
+    if (ex.rows[0]) await client.query('DELETE FROM vino_cierres WHERE id=$1', [ex.rows[0].id]);
+    const tot = new Map(orden.map((n) => [n, 0]));
+    const vids = [], sts = [], ubs = [];
+    for (const it of items) {
+      const vid = Number(it.vino_id);
+      if (!vid) continue;
+      const ub = {};
+      Object.entries(it.ubicaciones || {}).forEach(([k, v]) => { const n = num(v); if (n) { ub[k] = n; tot.set(k, (tot.get(k) || 0) + n); } });
+      vids.push(vid); sts.push(num(it.stock)); ubs.push(JSON.stringify(ub));
+    }
+    const id = (await client.query(
+      'INSERT INTO vino_cierres (local, fecha, usuario, ubicaciones, historico) VALUES ($1,$2,$3,$4,true) RETURNING id',
+      [local, fecha, req.session.role, JSON.stringify([...tot.entries()])]
+    )).rows[0].id;
+    await client.query(
+      `INSERT INTO vino_cierre_items (cierre_id, vino_id, stock, reposicion, ubicaciones)
+       SELECT $1, v, s, 0, u::jsonb FROM unnest($2::int[], $3::numeric[], $4::text[]) AS t(v, s, u)`,
+      [id, vids, sts, ubs]
+    );
+    await client.query('COMMIT');
+    res.json({ ok: true, id, vinos: vids.length, total: sts.reduce((a, b) => a + b, 0), ubicaciones: [...tot.entries()] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(400).json({ error: err.message || 'Error al cargar el conteo' });
+  } finally {
+    client.release();
   }
 });
 
@@ -999,7 +1050,14 @@ async function syncStock(client, local, url, usuario) {
       const etq = head.indexOf('ETIQUETA') >= 0 ? head.indexOf('ETIQUETA') : head.indexOf('ETIQUETAS');
       cols = { stock: iStock, sku: head.indexOf('SKU'), tipo: head.indexOf('TIPO'), etiqueta: etq, cepa: head.indexOf('CEPA'), bodega: head.indexOf('BODEGA'),
         // botellas que entraron desde el último cierre (no suma al STOCK de la planilla)
-        repo: head.findIndex((x) => x.startsWith('REPOSICION')) };
+        repo: head.findIndex((x) => x.startsWith('REPOSICION') || x === 'REPO') };
+      // ubicaciones = columnas con nombre entre la descripción del vino (SKU..BODEGA) y la columna de stock
+      const desc = Math.max(cols.sku, cols.tipo, cols.etiqueta, cols.cepa, cols.bodega);
+      cols.ubic = [];
+      for (let k = desc + 1; k < iStock; k++) {
+        const nombre = String((filas[i] || [])[k] == null ? '' : filas[i][k]).trim().toUpperCase();
+        if (nombre && k !== cols.repo) cols.ubic.push({ k, nombre });
+      }
       break;
     }
   }
@@ -1063,7 +1121,13 @@ async function syncStock(client, local, url, usuario) {
     const repo = repoCrudo === '' ? 0 : num(repoCrudo.replace(',', '.'));
     if (repoCrudo !== '') repoFilas.push(i + 1);
     const prev = contados.get(vino.id);
-    contados.set(vino.id, { vino, contado: (prev ? prev.contado : 0) + contado, repo: (prev ? prev.repo : 0) + repo });
+    const ub = prev ? prev.ub : {};
+    for (const u of cols.ubic) {
+      const c = val(f, u.k);
+      const n = c === '' ? 0 : num(c.replace(',', '.'));
+      if (n) ub[u.nombre] = (ub[u.nombre] || 0) + n;
+    }
+    contados.set(vino.id, { vino, contado: (prev ? prev.contado : 0) + contado, repo: (prev ? prev.repo : 0) + repo, ub });
   }
   for (const { vino, contado } of contados.values()) {
     await vincularLocal(client, vino.id, local);
@@ -1091,7 +1155,7 @@ async function syncStock(client, local, url, usuario) {
       stock.set(vinoId, 0);
       res.ajustes++;
     }
-    res.cierre = await guardarCierre(client, local, stock, contados, usuario);
+    res.cierre = await guardarCierre(client, local, stock, contados, usuario, cols.ubic.map((u) => u.nombre));
   }
   if (filas.hoja && cols.sku >= 0) res._skus = { ...filas.hoja, colSku: cols.sku, pendientes: skuPendientes };
   if (res.cierre && filas.hoja && cols.repo >= 0 && repoFilas.length) res._repo = { ...filas.hoja, colRepo: cols.repo, filas: repoFilas };
@@ -1104,7 +1168,7 @@ function fechaAR() { return new Date(Date.now() - 3 * 3600 * 1000).toISOString()
 // Guarda la foto del stock del local (cierre del día) con la reposición cargada en la planilla.
 // Si ya hubo un cierre hoy, se reemplaza el stock y la reposición se suma a la que ya estaba
 // (la columna REPOSICION se vacía después de cada sincronización, así no se cuenta dos veces).
-async function guardarCierre(client, local, stock, contados, usuario) {
+async function guardarCierre(client, local, stock, contados, usuario, ubicNombres = []) {
   const fecha = fechaAR();
   const ex = await client.query('SELECT id FROM vino_cierres WHERE local=$1 AND fecha=$2', [local, fecha]);
   let id;
@@ -1114,28 +1178,33 @@ async function guardarCierre(client, local, stock, contados, usuario) {
     const r = await client.query('SELECT vino_id, reposicion FROM vino_cierre_items WHERE cierre_id=$1 AND reposicion<>0', [id]);
     r.rows.forEach((x) => repoPrev.set(x.vino_id, num(x.reposicion)));
     await client.query('DELETE FROM vino_cierre_items WHERE cierre_id=$1', [id]);
-    await client.query('UPDATE vino_cierres SET usuario=$2, created_at=now() WHERE id=$1', [id, usuario]);
+    await client.query('UPDATE vino_cierres SET usuario=$2, created_at=now(), historico=false WHERE id=$1', [id, usuario]);
   } else {
     id = (await client.query('INSERT INTO vino_cierres (local, fecha, usuario) VALUES ($1,$2,$3) RETURNING id', [local, fecha, usuario])).rows[0].id;
   }
+  // totales por ubicación del conteo, en el orden de la planilla
+  const totUb = new Map(ubicNombres.map((n) => [n, 0]));
+  for (const c of contados.values()) Object.entries(c.ub || {}).forEach(([k, n]) => totUb.set(k, (totUb.get(k) || 0) + n));
+  await client.query('UPDATE vino_cierres SET ubicaciones=$2 WHERE id=$1', [id, JSON.stringify([...totUb.entries()])]);
   const ids = new Set([...stock.keys(), ...repoPrev.keys(), ...contados.keys()]);
-  const vids = [], sts = [], reps = [];
+  const vids = [], sts = [], reps = [], ubs = [];
   let repoTot = 0;
   for (const vid of ids) {
     const s = num(stock.get(vid));
     const rp = (repoPrev.get(vid) || 0) + (contados.has(vid) ? num(contados.get(vid).repo) : 0);
     if (s === 0 && rp === 0) continue;
     vids.push(vid); sts.push(s); reps.push(rp);
+    ubs.push(contados.has(vid) ? JSON.stringify(contados.get(vid).ub || {}) : null);
     repoTot += rp;
   }
   if (vids.length) {
     await client.query(
-      `INSERT INTO vino_cierre_items (cierre_id, vino_id, stock, reposicion)
-       SELECT $1, * FROM unnest($2::int[], $3::numeric[], $4::numeric[])`,
-      [id, vids, sts, reps]
+      `INSERT INTO vino_cierre_items (cierre_id, vino_id, stock, reposicion, ubicaciones)
+       SELECT $1, v, s, r, u::jsonb FROM unnest($2::int[], $3::numeric[], $4::numeric[], $5::text[]) AS t(v, s, r, u)`,
+      [id, vids, sts, reps, ubs]
     );
   }
-  const n = await client.query('SELECT COUNT(*)::int AS n FROM vino_cierres WHERE local=$1', [local]);
+  const n = await client.query('SELECT COUNT(*)::int AS n FROM vino_cierres WHERE local=$1 AND NOT historico', [local]);
   return { fecha, reposicion: repoTot, primero: n.rows[0].n === 1 };
 }
 
