@@ -524,6 +524,13 @@ tfoot td{background:var(--bg2);border-top:0.5px solid var(--br2)}
           </div>
           <div id="vc-body"></div>
         </div>
+        <div class="card" id="vh-card">
+          <div class="card-header">
+            <span class="card-title">Historial de conteos <span style="font-weight:400;color:var(--tx3)">· cada sincronización queda guardada con el detalle por ubicación</span></span>
+            <div class="filters"><select class="fsel" id="vh-sel" onchange="renderVHistorial()"></select></div>
+          </div>
+          <div id="vh-body"></div>
+        </div>
         <div class="vgrid2">
           <div class="card">
             <div class="card-header">
@@ -1766,7 +1773,7 @@ async function loadVinos(){
 // El intervalo se asigna a la semana/mes/año de la fecha del cierre que lo termina.
 let vcons={cierres:[],items:[]};
 function vcIntervalos(loc){
-  const cs=vcons.cierres.filter(c=>c.local===loc).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  const cs=vcons.cierres.filter(c=>c.local===loc&&!c.historico).sort((a,b)=>a.fecha.localeCompare(b.fecha));
   const it={};vcons.items.forEach(x=>{(it[x.cierre_id]||(it[x.cierre_id]=new Map())).set(x.vino_id,{s:Number(x.stock)||0,r:Number(x.reposicion)||0})});
   const out=[];
   for(let k=1;k<cs.length;k++){
@@ -1828,6 +1835,35 @@ function renderVConsumo(){
     ${neg.length?`<div class="shead">Consumo negativo · revisar</div><div class="tw"><table>${head}<tbody>${neg.slice(0,30).map(fila).join('')}</tbody></table></div>`:''}`;
 }
 function vinoById(id){return vinos.find(v=>v.id===id)}
+
+// ---------- HISTORIAL DE CONTEOS ----------
+// Lista todos los cierres del local (también los históricos cargados a mano) con los totales por ubicación.
+// Elegir un conteo muestra el detalle por vino y ubicación.
+function renderVHistorial(){
+  const body=$f('vh-body'),sel=$f('vh-sel');if(!body||!sel)return;
+  const cs=vcons.cierres.filter(c=>c.local===vLocal).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  if(!cs.length){sel.style.display='none';body.innerHTML='<div class="empty" style="padding:1.5rem">Todavía no hay conteos guardados de '+esc(vLocal)+'.</div>';return;}
+  const tot={};vcons.items.forEach(x=>{const t=tot[x.cierre_id]||(tot[x.cierre_id]={s:0,r:0,n:0});t.s+=Number(x.stock)||0;t.r+=Number(x.reposicion)||0;if(Number(x.stock))t.n++;});
+  const ubs=[];cs.slice().reverse().forEach(c=>(c.ubicaciones||[]).forEach(([n])=>{if(!ubs.includes(n))ubs.push(n)}));
+  const ubDe=c=>new Map((c.ubicaciones||[]).map(([n,v])=>[n,Number(v)||0]));
+  sel.style.display='';
+  const cur=cs.some(c=>String(c.id)===sel.value)?sel.value:'';
+  sel.innerHTML='<option value="">Todos los conteos</option>'+cs.map(c=>`<option value="${c.id}">Conteo ${fD(c.fecha)}${c.historico?' (histórico)':''}</option>`).join('');sel.value=cur;
+  const th=t=>`<th style="text-align:right">${esc(t)}</th>`;
+  if(!cur){
+    body.innerHTML=`<div class="tw"><table><thead><tr><th>Fecha</th>${ubs.map(th).join('')}<th style="text-align:right">Total</th><th style="text-align:right">Reposición</th><th>Cargó</th></tr></thead><tbody>${cs.map(c=>{const u=ubDe(c),t=tot[c.id]||{s:0,r:0};
+      return `<tr style="cursor:pointer" onclick="$f('vh-sel').value='${c.id}';renderVHistorial()"><td class="fw5">${fD(c.fecha)}${c.historico?' <span style="font-size:10px;color:var(--tx3)">histórico</span>':''}</td>${ubs.map(n=>`<td style="text-align:right">${u.has(n)?nq(u.get(n)):'—'}</td>`).join('')}<td style="text-align:right" class="fw5">${nq(t.s)}</td><td style="text-align:right">${t.r?'+'+nq(t.r):'—'}</td><td style="font-size:11px;color:var(--tx3)">${esc(c.usuario||'')}</td></tr>`}).join('')}</tbody></table></div>
+      <div style="font-size:11px;color:var(--tx3);margin-top:.5rem">Los conteos anteriores al detalle por ubicación muestran solo el total. Tocá una fila para ver el detalle por vino.</div>`;
+    return;
+  }
+  const c=cs.find(x=>String(x.id)===cur),u=ubDe(c),cols=(c.ubicaciones||[]).map(([n])=>n);
+  const rows=vcons.items.filter(x=>x.cierre_id===c.id&&Number(x.stock)).map(x=>({v:vinoById(x.vino_id),s:Number(x.stock)||0,r:Number(x.reposicion)||0,ub:x.ubicaciones||{}}))
+    .filter(r=>r.v).sort((a,b)=>a.v.nom.localeCompare(b.v.nom));
+  const t=tot[c.id]||{s:0};
+  body.innerHTML=`<div class="stats-grid">${cols.map(n=>`<div class="stat-card"><div class="stat-label">${esc(n)}</div><div class="stat-value">${nq(u.get(n)||0)}</div></div>`).join('')}
+      <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value c-ok">${nq(t.s)}</div><div class="stat-sub">${rows.length} etiquetas · ${fD(c.fecha)}</div></div></div>
+    <div class="tw"><table><thead><tr><th>Vino</th>${cols.map(th).join('')}<th style="text-align:right">Total</th></tr></thead><tbody>${rows.map(r=>`<tr><td><div class="fw5">${esc(r.v.nom)}</div><div style="font-size:10px;color:var(--tx3)">${esc([sku(r.v.id),r.v.bod,r.v.var].filter(Boolean).join(' · '))}</div></td>${cols.map(n=>`<td style="text-align:right">${r.ub[n]?nq(r.ub[n]):''}</td>`).join('')}<td style="text-align:right" class="fw5">${nq(r.s)}</td></tr>`).join('')||`<tr><td colspan="${cols.length+2}" class="empty">Sin vinos</td></tr>`}</tbody></table></div>`;
+}
 function vLabel(v){return v.nom+(v.bod?' — '+v.bod:'')+(v.ana?' '+v.ana:'')}
 function stockMap(){
   const m={};vinos.forEach(v=>{m[v.id]={Wheelwright:0,Pichincha:0}});
@@ -1920,6 +1956,7 @@ function renderVResumen(){
   $f('vr-sr').innerHTML=sr.slice(0,30).map(r=>`<tr><td class="fw5">${esc(r.v.nom)}</td><td>${esc(r.v.bod)}</td><td style="text-align:right">${nq(r.s)}</td><td style="text-align:right">${fmt(r.s*r.v.costo)}</td><td style="font-size:11px;color:var(--tx3)">${ult[r.v.id]?fD(ult[r.v.id]):'Nunca'}</td></tr>`).join('')
     ||'<tr><td colspan="5" class="empty" style="padding:1.5rem">Todos los vinos con stock tuvieron ventas</td></tr>';
   renderVConsumo();
+  renderVHistorial();
 }
 
 // ---------- STOCK ----------
