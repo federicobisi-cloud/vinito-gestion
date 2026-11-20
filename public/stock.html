@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stock Vinito</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+/* VOICE: herramienta de trabajo, rápida, con una mano, en el depósito con poca luz.
+   IDEA: la planilla de conteo del local hecha tarjetas, con el color de cada vino.
+   PICTURE: la lista misma; cada vino con su franja de color y una botonera grande.
+   COLOUR and TYPE: bordó Vinito de base, fondo claro; colores de vino suaves; Figtree.
+   LAYOUT: cabecera fija (local, posición, buscador, filtros), lista, barra inferior. */
+:root{color-scheme:light dark;
+--bg:light-dark(#f6f3ef,#141012);--card:light-dark(#fff,#1f191c);--ink:light-dark(#221a1d,#f1eaec);
+--mute:light-dark(#76696e,#a5979c);--line:light-dark(#e6dfe1,#342a2e);--brand:#6e1f33;--brand2:light-dark(#6e1f33,#c9677d);
+--chip:light-dark(#efe9eb,#2a2226);
+--tinto:#b54a5c;--blanco:light-dark(#e6d79a,#dccb85);--rosado:#ef9fb3;--naranjo:#ea9441;--espumante:#55a876}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 Figtree,system-ui,sans-serif;overflow-x:clip;-webkit-tap-highlight-color:transparent}
+button{font:inherit;color:inherit;cursor:pointer;touch-action:manipulation}
+button:focus-visible,input:focus-visible{outline:3px solid var(--brand2);outline-offset:2px}
+header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);box-shadow:0 4px 14px -10px #0005}
+.top{background:var(--brand);color:#fff;padding:10px 14px 0;display:flex;align-items:flex-end;justify-content:space-between;gap:8px}
+.top h1{margin:0 0 10px;font-size:20px;font-weight:800;letter-spacing:-.01em}
+.tabs{display:flex;gap:4px}
+.tab{border:0;background:#ffffff1f;color:#fff;padding:10px 14px;border-radius:12px 12px 0 0;font-weight:600;min-height:44px}
+.tab[aria-selected=true]{background:var(--bg);color:var(--ink)}
+.pad{padding:10px 12px 0}
+.lbl{font-size:13px;color:var(--mute);margin:0 0 6px}
+.row{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:10px}
+.row::-webkit-scrollbar{display:none}
+.pos{flex:none;border:2px solid var(--line);background:var(--card);border-radius:999px;padding:8px 14px;font-weight:600;min-height:44px;white-space:nowrap}
+.pos[aria-pressed=true]{background:var(--brand2);border-color:var(--brand2);color:light-dark(#fff,#1a0f13)}
+.search{position:relative}
+.search input{width:100%;font:inherit;font-size:17px;padding:12px 44px 12px 14px;border:2px solid var(--line);border-radius:14px;background:var(--card);color:var(--ink);min-height:48px}
+.search button{position:absolute;right:4px;top:4px;width:40px;height:40px;border:0;background:none;color:var(--mute);font-size:22px;display:none}
+.search.has button{display:block}
+.f{flex:none;border:1.5px solid var(--line);background:var(--chip);border-radius:10px;padding:7px 12px;min-height:40px;font-size:14px;font-weight:600;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.f[aria-pressed=true]{border-color:var(--ink);background:var(--card)}
+.dot{width:12px;height:12px;border-radius:50%;flex:none;box-shadow:inset 0 0 0 1px #0002}
+.count{font-size:13px;color:var(--mute);padding:0 2px 8px}
+main{padding:10px 12px 110px;max-width:760px;margin:0 auto}
+.card{background:var(--card);border-radius:14px;margin-bottom:8px;display:grid;grid-template-columns:7px minmax(0,1fr);overflow:hidden;box-shadow:0 1px 0 var(--line)}
+.card>.bar{background:var(--c)}
+.in{padding:10px 10px 10px 12px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center}
+.nm{font-weight:800;font-size:16px;line-height:1.2}
+.sub{font-size:13px;color:var(--mute);margin-top:2px}
+.tp{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--ink);margin-right:6px}
+.tp .dot{width:10px;height:10px}
+.ctl{display:flex;align-items:center;gap:6px;grid-row:span 2}
+.b{width:52px;height:52px;border-radius:14px;border:0;font-size:28px;font-weight:800;line-height:1;display:grid;place-items:center;user-select:none}
+.b.m{background:var(--chip)}
+.b.p{background:var(--brand2);color:light-dark(#fff,#1a0f13)}
+.b:active{transform:scale(.92)}
+.q{width:46px;text-align:center}
+.q b{display:block;font-size:24px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1}
+.q small{display:block;font-size:11px;color:var(--mute);margin-top:3px;white-space:nowrap}
+.ps{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.ps span{font-size:12px;padding:2px 7px;border-radius:6px;background:var(--chip);color:var(--mute);white-space:nowrap}
+.ps span.on{background:color-mix(in srgb,var(--brand2) 16%,transparent);color:var(--ink);font-weight:600}
+.ps .tot{background:none;color:var(--ink);font-weight:800;margin-left:auto}
+.card.ch .q small{color:var(--brand2);font-weight:600}
+.card.bump{animation:bump .25s}
+@keyframes bump{50%{transform:scale(1.015)}}
+@media(prefers-reduced-motion:reduce){.card.bump{animation:none}.b:active{transform:none}}
+.empty{text-align:center;color:var(--mute);padding:40px 10px}
+.more{display:block;margin:10px auto;border:1.5px solid var(--line);background:var(--card);border-radius:12px;padding:10px 18px;min-height:44px}
+footer{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--card);border-top:1px solid var(--line);padding:10px 12px calc(10px + env(safe-area-inset-bottom));display:flex;gap:8px;align-items:center;justify-content:space-between}
+footer .st{font-size:13px;line-height:1.25;color:var(--mute)}footer .st b{color:var(--ink)}
+.btn{border:0;border-radius:12px;padding:12px 14px;white-space:nowrap;min-height:46px;font-weight:700;background:var(--brand2);color:light-dark(#fff,#1a0f13)}
+.btn.sec{background:var(--chip);color:var(--ink)}
+.sheet{position:fixed;inset:0;z-index:10;background:#0007;display:none;align-items:flex-end;justify-content:center}
+.sheet.open{display:flex}
+.sheet>div{background:var(--card);width:100%;max-width:560px;border-radius:20px 20px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom))}
+.sheet h2{margin:0 0 4px;font-size:20px}.sheet p{margin:0 0 14px;color:var(--mute);font-size:14px}
+.sheet .btn{width:100%;margin-top:8px;text-align:left}
+.opn{cursor:pointer}.go{color:var(--mute);font-weight:600}
+.dh{border-left:6px solid var(--c);padding-left:12px;margin-bottom:12px}.dh h2{margin:4px 0 2px}.dh p{margin:0}
+.big{background:var(--chip);border-radius:14px;padding:12px 14px;margin-bottom:10px;display:grid;gap:4px}
+.big span{font-size:17px;line-height:1.35}.big strong{font-size:28px;font-weight:800}
+.dl{max-height:46vh;overflow-y:auto}
+.dr{display:grid;grid-template-columns:minmax(0,1fr) auto 44px auto;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)}
+.dr small{display:block;font-size:12px;color:var(--brand2);font-weight:600}.dr.z{opacity:.55}.dr.here b{color:var(--brand2)}
+.dn{text-align:center;font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
+.b.s{width:44px;height:44px;font-size:24px;border-radius:12px}
+.login{position:fixed;inset:0;z-index:30;background:var(--brand);display:none;align-items:center;justify-content:center;padding:20px}
+.login.on{display:flex}
+.login form{background:var(--card);border-radius:20px;padding:22px 18px;width:100%;max-width:380px;display:grid;gap:12px}
+.login h2{margin:0;font-size:24px}.login p{margin:0;color:var(--mute);font-size:14px}
+.login select,.login input{font:inherit;font-size:17px;padding:12px;border:2px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink);min-height:48px;width:100%}
+.login .err{color:#c0392b;font-size:14px;min-height:1em}
+.ok{color:#2f8a57}.warn{color:#c0392b}
+.toast{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;z-index:20;opacity:0;pointer-events:none;transition:opacity .2s}
+.toast.on{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>Stock Vinito</h1>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" id="t-wheelwright" data-l="wheelwright">Wheelwright</button>
+      <button class="tab" role="tab" id="t-pichincha" data-l="pichincha">Pichincha</button>
+    </div>
+  </div>
+  <div class="pad">
+    <p class="lbl">Estoy contando en</p>
+    <div class="row" id="posRow"></div>
+    <div class="search" id="sbox"><input id="q" type="search" placeholder="Buscar vino, cepa, bodega o SKU" autocomplete="off" enterkeyhint="search"><button id="qx" aria-label="Borrar búsqueda">×</button></div>
+    <div class="row" id="fRow" style="padding-top:8px"></div>
+    <div class="count" id="count"></div>
+  </div>
+</header>
+<main id="list"><div class="empty">Cargando planilla…</div></main>
+<footer>
+  <div class="st" id="st"></div>
+  <div style="display:flex;gap:6px"><button class="btn sec" id="menuBtn">Más</button><button class="btn" id="saveBtn">Guardar</button></div>
+</footer>
+<div class="sheet" id="sheet"><div id="sheetIn"></div></div>
+<div class="toast" id="toast"></div>
+<div class="login" id="login"><form id="loginF">
+  <h2>Stock Vinito</h2><p>Ingresá para contar el stock.</p>
+  <select id="lu"><option value="encargado">Encargado</option><option value="admin">Administrador</option></select>
+  <input id="lp" type="password" placeholder="Contraseña" autocomplete="current-password">
+  <div class="err" id="lerr"></div>
+  <button class="btn" type="submit">Entrar</button>
+</form></div>
+<script>
+{
+const API = location.pathname.startsWith('/administracion') ? '/administracion/api' : '/api';
+const LOCALES = { wheelwright: "Wheelwright", pichincha: "Pichincha" };
+const TIPOS = [["Tinto","--tinto"],["Blanco","--blanco"],["Rosado","--rosado"],["Naranjo","--naranjo"],["Espumante","--espumante"]];
+const colorOf = t => { const x = TIPOS.find(a => a[0].toLowerCase() === (t||"").toLowerCase()); return x ? `var(${x[1]})` : "var(--line)"; };
+const norm = s => (s||"").toString().normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+const esc = s => (s||"").toString().replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const NAMES = {"S. ROJO":"Salón rojo","DEPOSITO":"Depósito","DEPO":"Depósito","HELADERAS":"Heladeras"};
+const cap = s => NAMES[s] || (s.charAt(0) + s.slice(1).toLowerCase());
+const $ = id => document.getElementById(id);
+const PAGE = 60;
+
+let local = "wheelwright", D = null, st = null, view = [], shown = 0, detailI = -1;
+const cache = {};
+let saving = false, saveTimer = null, lastErr = "";
+
+function store(k, v){ try{ if(v === undefined) return JSON.parse(localStorage.getItem(k)); localStorage.setItem(k, JSON.stringify(v)); }catch(e){ return null; } }
+async function api(path, opt = {}){
+  const r = await fetch(API + path, { headers: { "Content-Type": "application/json" }, credentials: "same-origin", ...opt });
+  let d = null; try{ d = await r.json(); }catch(e){}
+  if(!r.ok){ const e = new Error((d && d.error) || "Error inesperado"); e.status = r.status; throw e; }
+  return d;
+}
+const keyOf = r => [r.sku, r.etiqueta, r.cepa, r.bodega].join("|");
+// pendientes: cambios todavía no escritos en el Drive { key: { POS: valor } }
+const pendKey = () => "vinitoStockPend_" + local;
+function pend(){ return store(pendKey()) || {}; }
+
+async function load(l, fresh){
+  local = l;
+  for(const b of document.querySelectorAll(".tab")) b.setAttribute("aria-selected", b.dataset.l === l);
+  if(location.hash !== "#" + l) history.replaceState(null, "", "#" + l);
+  store("vinitoStockLocal", l);
+  if(!cache[l] || fresh){
+    $("list").innerHTML = `<div class="empty">Cargando planilla de ${LOCALES[l]}…</div>`;
+    const prevOrig = cache[l] && cache[l].orig;
+    try{ cache[l] = await api("/stock/" + LOCALES[l]); }
+    catch(e){ if(e.status === 401){ showLogin(); return; } $("list").innerHTML = `<div class="empty warn">${esc(e.message)}</div>`; return; }
+    cache[l].orig = prevOrig || Object.fromEntries(cache[l].filas.map(r => [keyOf(r), r.ub.slice()]));
+  }
+  if(local !== l) return;
+  D = cache[l];
+  const ui = store("vinitoStockUI_" + l) || {};
+  const p = pend();
+  const counts = D.filas.map(r => { const c = r.ub.slice(), x = p[keyOf(r)]; if(x) D.posiciones.forEach((n, j) => { if(n in x) c[j] = x[n]; }); return c; });
+  st = { pos: Math.min(ui.pos ?? 0, D.posiciones.length - 1), conStock: ui.conStock ?? true, enPos: ui.enPos ?? false, cambios: false, tipos: ui.tipos || [], q: $("q").value, counts };
+  drawPos(); drawFilters(); filter(); status();
+  if(Object.keys(p).length) queueSave(200);
+}
+function saveUI(){ store("vinitoStockUI_" + local, { pos: st.pos, conStock: st.conStock, enPos: st.enPos, tipos: st.tipos }); }
+const origOf = i => D.orig[keyOf(D.filas[i])] || D.filas[i].ub;
+const changed = i => st.counts[i].join() !== origOf(i).join();
+const total = i => st.counts[i].reduce((a, b) => a + b, 0);
+
+function drawPos(){
+  $("posRow").innerHTML = D.posiciones.map((p, i) => `<button class="pos" aria-pressed="${i === st.pos}" data-p="${i}">${esc(cap(p))}</button>`).join("");
+}
+function drawFilters(){
+  const p = cap(D.posiciones[st.pos]);
+  $("fRow").innerHTML =
+    `<button class="f" data-f="conStock" aria-pressed="${st.conStock}">Stock ≥ 1</button>` +
+    `<button class="f" data-f="enPos" aria-pressed="${st.enPos}">Solo en ${esc(p)}</button>` +
+    `<button class="f" data-f="cambios" aria-pressed="${st.cambios}">Con cambios</button>` +
+    TIPOS.map(([t, c]) => `<button class="f" data-t="${t}" aria-pressed="${st.tipos.includes(t)}"><span class="dot" style="background:var(${c})"></span>${t}</button>`).join("");
+}
+function filter(){
+  const words = norm(st.q).split(/\s+/).filter(Boolean);
+  view = [];
+  D.filas.forEach((r, i) => {
+    if(st.conStock && total(i) < 1 && !changed(i)) return;
+    if(st.enPos && st.counts[i][st.pos] < 1 && !changed(i)) return;
+    if(st.cambios && !changed(i)) return;
+    if(st.tipos.length && !st.tipos.some(t => t.toLowerCase() === (r.tipo || "").toLowerCase())) return;
+    if(words.length){ const h = norm([r.sku, r.tipo, r.etiqueta, r.cepa, r.bodega].join(" ")); if(!words.every(w => h.includes(w))) return; }
+    view.push(i);
+  });
+  shown = 0; $("list").innerHTML = ""; more();
+  $("count").textContent = `${view.length} vino${view.length === 1 ? "" : "s"} en la lista`;
+}
+function cardHTML(i){
+  const r = D.filas[i], c = st.counts[i], o = origOf(i)[st.pos], v = c[st.pos];
+  const ps = D.posiciones.map((p, j) => c[j] ? `<span class="${j === st.pos ? "on" : ""}">${esc(cap(p))} ${c[j]}</span>` : "").join("");
+  return `<article class="card${changed(i) ? " ch" : ""}" id="c${i}" style="--c:${colorOf(r.tipo)}"><div class="bar"></div><div class="in">
+    <div class="opn" data-o="${i}" role="button" tabindex="0"><div class="nm">${esc(r.etiqueta)} <span class="go">›</span></div>
+    <div class="sub"><span class="tp"><span class="dot" style="background:${colorOf(r.tipo)}"></span>${esc(r.tipo)}</span>${esc(r.cepa)}${r.bodega ? " · " + esc(r.bodega) : ""}</div></div>
+    <div class="ctl"><button class="b m" data-d="-1" data-i="${i}" aria-label="Restar uno">−</button>
+    <div class="q"><b>${v}</b><small>${v !== o ? "antes " + o : "&nbsp;"}</small></div>
+    <button class="b p" data-d="1" data-i="${i}" aria-label="Sumar uno">+</button></div>
+    <div class="ps">${ps}<span class="tot">Total ${total(i)}</span></div></div></article>`;
+}
+function more(){
+  const L = $("list"), next = view.slice(shown, shown + PAGE);
+  L.querySelector(".more")?.remove();
+  if(!view.length){ L.innerHTML = `<div class="empty">No hay vinos con estos filtros.<br>Probá sacar “Stock ≥ 1” o cambiar la búsqueda.</div>`; return; }
+  L.insertAdjacentHTML("beforeend", next.map(cardHTML).join(""));
+  shown += next.length;
+  if(shown < view.length) L.insertAdjacentHTML("beforeend", `<button class="more" id="moreBtn">Mostrar ${Math.min(PAGE, view.length - shown)} más (quedan ${view.length - shown})</button>`);
+}
+function status(){
+  const n = Object.values(pend()).reduce((a, x) => a + Object.keys(x).length, 0);
+  let h;
+  if(saving) h = "Guardando en Drive…";
+  else if(lastErr && n) h = `<span class="warn">${n} sin guardar</span><br>${esc(lastErr)}`;
+  else if(n) h = `<b>${n}</b> cambio${n === 1 ? "" : "s"} por guardar`;
+  else h = `<span class="ok">✓ Todo guardado en Drive</span>`;
+  $("st").innerHTML = h;
+  $("saveBtn").disabled = !n || saving;
+  $("saveBtn").style.opacity = (!n || saving) ? .5 : 1;
+}
+function setCount(i, p, val){
+  const r = D.filas[i], c = st.counts[i];
+  c[p] = Math.max(0, val);
+  const P = pend(), k = keyOf(r), pos = D.posiciones[p];
+  if(c[p] === r.ub[p]){ if(P[k]){ delete P[k][pos]; if(!Object.keys(P[k]).length) delete P[k]; } }
+  else (P[k] = P[k] || {})[pos] = c[p];
+  store(pendKey(), P);
+}
+function bump(i, dlt, p = st.pos){
+  setCount(i, p, st.counts[i][p] + dlt);
+  if(detailI === i) detail(i);
+  const el = $("c" + i);
+  if(el){ el.outerHTML = cardHTML(i); $("c" + i).classList.add("bump"); }
+  try{ navigator.vibrate && navigator.vibrate(12); }catch(e){}
+  status(); queueSave();
+}
+function queueSave(ms = 1500){ clearTimeout(saveTimer); saveTimer = setTimeout(save, ms); }
+async function save(){
+  if(saving){ queueSave(); return; }
+  const l = local, P = pend(), cambios = [];
+  for(const r of D.filas){ const x = P[keyOf(r)]; if(x) for(const pos in x) cambios.push({ fila: r.fila, sku: r.sku, etiqueta: r.etiqueta, cepa: r.cepa, bodega: r.bodega, pos, valor: x[pos] }); }
+  if(!cambios.length){ status(); return; }
+  saving = true; status();
+  try{
+    const res = await api("/stock/" + LOCALES[l], { method: "POST", body: JSON.stringify({ cambios }) });
+    lastErr = res.noEncontrados && res.noEncontrados.length ? "No encontré en la planilla: " + res.noEncontrados.join(", ") : "";
+    // lo enviado pasa a ser la base; se quita de pendientes si no se tocó mientras guardaba
+    const cur = store("vinitoStockPend_" + l) || {}, Dl = cache[l];
+    for(const cmb of cambios){
+      const r = Dl.filas.find(x => keyOf(x) === [cmb.sku, cmb.etiqueta, cmb.cepa, cmb.bodega].join("|"));
+      const j = Dl.posiciones.indexOf(cmb.pos);
+      if(r && j >= 0) r.ub[j] = cmb.valor;
+      const k = [cmb.sku, cmb.etiqueta, cmb.cepa, cmb.bodega].join("|");
+      if(cur[k] && cur[k][cmb.pos] === cmb.valor){ delete cur[k][cmb.pos]; if(!Object.keys(cur[k]).length) delete cur[k]; }
+    }
+    store("vinitoStockPend_" + l, cur);
+  }catch(e){
+    if(e.status === 401){ saving = false; showLogin(); return; }
+    lastErr = navigator.onLine === false ? "Sin conexión: se guarda cuando vuelva." : e.message;
+    queueSave(8000);
+  }
+  saving = false; if(l === local) status();
+}
+function toast(t){ const e = $("toast"); e.textContent = t; e.classList.add("on"); clearTimeout(toast.h); toast.h = setTimeout(() => e.classList.remove("on"), 2200); }
+function openSheet(h){ detailI = -1; $("sheetIn").innerHTML = h; $("sheet").classList.add("open"); }
+function closeSheet(){ detailI = -1; $("sheet").classList.remove("open"); }
+function resumen(i){
+  const c = st.counts[i];
+  const parts = D.posiciones.map((p, j) => c[j] ? `${c[j]} en ${cap(p).toLowerCase()}` : "").filter(Boolean);
+  if(!parts.length) return "No hay botellas en ninguna posición.";
+  return parts.length > 1 ? parts.slice(0, -1).join(", ") + " y " + parts.at(-1) : parts[0];
+}
+function detail(i){
+  const r = D.filas[i], c = st.counts[i], o = origOf(i);
+  const order = D.posiciones.map((p, j) => j).sort((a, b) => (c[b] > 0) - (c[a] > 0));
+  const rows = order.map(j => `<div class="dr${c[j] ? "" : " z"}${j === st.pos ? " here" : ""}">
+    <div><b>${esc(cap(D.posiciones[j]))}</b>${c[j] !== o[j] ? `<small>antes ${o[j]}</small>` : ""}</div>
+    <button class="b m s" data-dp="-1" data-p2="${j}" data-i="${i}" aria-label="Restar uno en ${esc(cap(D.posiciones[j]))}">−</button>
+    <span class="dn">${c[j]}</span>
+    <button class="b p s" data-dp="1" data-p2="${j}" data-i="${i}" aria-label="Sumar uno en ${esc(cap(D.posiciones[j]))}">+</button></div>`).join("");
+  $("sheetIn").innerHTML = `<div class="dh" style="--c:${colorOf(r.tipo)}"><span class="tp"><span class="dot" style="background:${colorOf(r.tipo)}"></span>${esc(r.tipo)}</span>
+    <h2>${esc(r.etiqueta)}</h2><p>${esc(r.cepa)}${r.bodega ? " · " + esc(r.bodega) : ""}${r.sku ? " · " + esc(r.sku) : ""}</p></div>
+    <div class="big"><span>${esc(resumen(i))}</span><strong>Total ${total(i)}</strong></div>
+    <div class="dl">${rows}</div>
+    <button class="btn" data-a="close">Listo</button>`;
+  detailI = i; $("sheet").classList.add("open");
+}
+function menu(){
+  const p = cap(D.posiciones[st.pos]);
+  openSheet(`<h2>${esc(LOCALES[local])}</h2><p>Cada cambio se guarda solo en la planilla “${esc(D.hoja)}” del Drive. Para pasarlo al sistema usá “Sincronizar” en Vinos.</p>
+  <button class="btn sec" data-a="reload">Recargar desde Drive</button>
+  <button class="btn sec" data-a="zero">Empezar ${esc(p)} desde cero</button>
+  <button class="btn sec" data-a="logout">Salir</button>
+  <button class="btn" data-a="close">Cerrar</button>`);
+}
+function confirmBox(txt, ok){
+  openSheet(`<h2>¿Seguro?</h2><p>${txt}</p><button class="btn" data-a="yes">Sí, hacerlo</button><button class="btn sec" data-a="close">Cancelar</button>`);
+  confirmBox.ok = ok;
+}
+function showLogin(){ $("login").classList.add("on"); setTimeout(() => $("lp").focus(), 50); }
+
+$("loginF").addEventListener("submit", async e => {
+  e.preventDefault(); $("lerr").textContent = "";
+  try{
+    await api("/auth/login", { method: "POST", body: JSON.stringify({ user: $("lu").value, password: $("lp").value }) });
+    store("vinitoStockUser", $("lu").value);
+    $("login").classList.remove("on"); $("lp").value = "";
+    load(local, true);
+  }catch(err){ $("lerr").textContent = err.message; }
+});
+document.addEventListener("click", e => {
+  const o = e.target.closest("[data-o]"); if(o){ detail(+o.dataset.o); return; }
+  const t = e.target.closest("button"); if(!t){ if(e.target.id === "sheet") closeSheet(); return; }
+  if(t.dataset.dp){ bump(+t.dataset.i, +t.dataset.dp, +t.dataset.p2); return; }
+  if(t.dataset.d){ bump(+t.dataset.i, +t.dataset.d); return; }
+  if(t.dataset.l){ $("q").value = ""; $("sbox").classList.remove("has"); load(t.dataset.l); return; }
+  if(!st) return;
+  if(t.dataset.p){ st.pos = +t.dataset.p; drawPos(); drawFilters(); filter(); saveUI(); return; }
+  if(t.dataset.f){ st[t.dataset.f] = !st[t.dataset.f]; drawFilters(); filter(); saveUI(); return; }
+  if(t.dataset.t){ const x = t.dataset.t; st.tipos = st.tipos.includes(x) ? st.tipos.filter(y => y !== x) : [...st.tipos, x]; drawFilters(); filter(); saveUI(); return; }
+  if(t.id === "moreBtn"){ more(); return; }
+  if(t.id === "qx"){ $("q").value = ""; st.q = ""; $("sbox").classList.remove("has"); filter(); $("q").focus(); return; }
+  if(t.id === "saveBtn"){ clearTimeout(saveTimer); save(); return; }
+  if(t.id === "menuBtn"){ menu(); return; }
+  const a = t.dataset.a;
+  if(a === "close"){ closeSheet(); return; }
+  if(a === "reload"){ closeSheet(); load(local, true); return; }
+  if(a === "logout"){ closeSheet(); api("/auth/logout", { method: "POST" }).catch(() => {}).then(showLogin); return; }
+  if(a === "zero"){ const p = cap(D.posiciones[st.pos]); confirmBox(`Todos los vinos van a quedar en 0 en ${esc(p)} (también en el Drive) y arrancás a contar con +.`, () => { D.filas.forEach((r, i) => { if(st.counts[i][st.pos]) setCount(i, st.pos, 0); }); st.enPos = false; st.conStock = false; queueSave(300); }); return; }
+  if(a === "yes"){ confirmBox.ok(); closeSheet(); drawFilters(); filter(); saveUI(); status(); toast("Listo"); return; }
+});
+let qh;
+$("q").addEventListener("input", e => { if(!st) return; st.q = e.target.value; $("sbox").classList.toggle("has", !!st.q); clearTimeout(qh); qh = setTimeout(filter, 120); });
+window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if(LOCALES[h] && h !== local) load(h); });
+window.addEventListener("online", () => queueSave(300));
+const u = store("vinitoStockUser"); if(u) $("lu").value = u;
+const h0 = location.hash.slice(1), l0 = store("vinitoStockLocal");
+load(LOCALES[h0] ? h0 : (LOCALES[l0] ? l0 : "wheelwright"));
+}
+</script>
+</body>
+</html>
