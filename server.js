@@ -23,6 +23,8 @@ const READER_PASSWORD = process.env.READER_PASSWORD || 'lector123';
 // Sin SOCIO_PASSWORD configurada en Railway el usuario Socio queda deshabilitado
 // (el repo es público, así que no dejamos una contraseña por defecto).
 const SOCIO_PASSWORD = process.env.SOCIO_PASSWORD || null;
+// Encargado: solo entra a la app de conteo (/administracion/stock). Sin ENCARGADO_PASSWORD queda deshabilitado.
+const ENCARGADO_PASSWORD = process.env.ENCARGADO_PASSWORD || null;
 
 app.use(express.json());
 app.use(
@@ -47,7 +49,8 @@ function requireAdmin(req, res, next) {
 }
 
 function requireAuth(req, res, next) {
-  if (!req.session.role) {
+  // el encargado solo usa la app de stock: no ve proveedores, boletas ni cheques
+  if (!req.session.role || req.session.role === 'encargado') {
     return res.status(401).json({ error: 'No autenticado' });
   }
   next();
@@ -67,6 +70,10 @@ app.post('/api/auth/login', (req, res) => {
   if (user === 'socio' && SOCIO_PASSWORD && password === SOCIO_PASSWORD) {
     req.session.role = 'socio';
     return res.json({ role: 'socio' });
+  }
+  if (user === 'encargado' && ENCARGADO_PASSWORD && password === ENCARGADO_PASSWORD) {
+    req.session.role = 'encargado';
+    return res.json({ role: 'encargado' });
   }
   return res.status(401).json({ error: 'Contraseña incorrecta' });
 });
@@ -1298,6 +1305,107 @@ app.post('/api/vinos/sync', requireAdminOSocio, async (req, res) => {
   } finally {
     client.release();
   }
+});
+
+// =====================================================================
+// ---------- STOCK: app de conteo para el celular (/administracion/stock) ----------
+// Lee la planilla de stock del local (la misma que usa la sincronización) y escribe
+// cada conteo directo en las celdas de ubicación. El paso al sistema sigue siendo "Sincronizar".
+// =====================================================================
+function requireConteo(escribe) {
+  return (req, res, next) => {
+    const r = req.session.role;
+    const ok = r === 'admin' || r === 'encargado' || (!escribe && r === 'socio');
+    if (!ok) return res.status(r ? 403 : 401).json({ error: r ? 'No tenés permiso para el conteo' : 'No autenticado' });
+    next();
+  };
+}
+async function hojaStock(local) {
+  if (!LOCALES_VINO.includes(local)) throw Object.assign(new Error('Local inválido'), { status: 400 });
+  const pr = await pool.query("SELECT url FROM vino_planillas WHERE local=$1 AND tipo='stock'", [local]);
+  const url = pr.rows[0] && pr.rows[0].url;
+  if (!url) throw Object.assign(new Error(`No hay planilla de stock configurada para ${local}`), { status: 400 });
+  const filas = await leerHoja(url);
+  // mismo criterio que syncStock: encabezado con TOTAL/STOCK y ubicaciones entre BODEGA y esa columna
+  for (let i = 0; i < Math.min(filas.length, 10); i++) {
+    const head = (filas[i] || []).map(norm);
+    let iStock = head.indexOf('TOTAL');
+    if (iStock < 0) iStock = head.findIndex((x) => x === 'STOCK' || x.startsWith('STOCK') || x === 'CANTIDAD' || x === 'BOTELLAS');
+    if (iStock < 0) continue;
+    const etq = head.indexOf('ETIQUETA') >= 0 ? head.indexOf('ETIQUETA') : head.indexOf('ETIQUETAS');
+    const cols = { sku: head.indexOf('SKU'), tipo: head.indexOf('TIPO'), etiqueta: etq, cepa: head.indexOf('CEPA'), bodega: head.indexOf('BODEGA'),
+      repo: head.findIndex((x) => x.startsWith('REPOSICION') || x === 'REPO') };
+    const desc = Math.max(cols.sku, cols.tipo, cols.etiqueta, cols.cepa, cols.bodega);
+    cols.ubic = [];
+    for (let k = desc + 1; k < iStock; k++) {
+      const nombre = String((filas[i] || [])[k] == null ? '' : filas[i][k]).trim().toUpperCase();
+      if (nombre && k !== cols.repo) cols.ubic.push({ k, nombre });
+    }
+    return { filas, h: i, cols, hoja: filas.hoja };
+  }
+  throw Object.assign(new Error('La planilla de stock necesita una columna llamada TOTAL (o STOCK)'), { status: 400 });
+}
+const celda = (f, k) => (k >= 0 && f[k] != null ? String(f[k]).trim() : '');
+const cant = (v) => { const s = String(v == null ? '' : v).trim(); return s === '' ? 0 : num(s.replace(',', '.')); };
+const claveFila = (f, c) => [norm(celda(f, c.sku)), norm(celda(f, c.etiqueta)), norm(celda(f, c.cepa)), norm(celda(f, c.bodega))].join('|');
+
+app.get('/api/stock/:local', requireConteo(false), async (req, res) => {
+  try {
+    const { filas, h, cols, hoja } = await hojaStock(req.params.local);
+    const out = [];
+    for (let i = h + 1; i < filas.length; i++) {
+      const f = filas[i] || [];
+      const etiqueta = celda(f, cols.etiqueta);
+      if (!etiqueta) continue;
+      out.push({ fila: i + 1, sku: celda(f, cols.sku), tipo: celda(f, cols.tipo), etiqueta, cepa: celda(f, cols.cepa), bodega: celda(f, cols.bodega),
+        ub: cols.ubic.map((u) => cant(f[u.k])) });
+    }
+    res.json({ local: req.params.local, hoja: hoja.title, posiciones: cols.ubic.map((u) => u.nombre), filas: out, role: req.session.role });
+  } catch (err) {
+    console.error(err);
+    res.status(err.status || 500).json({ error: err.message || 'Error al leer la planilla de stock' });
+  }
+});
+
+// body: { cambios: [{ fila, sku, etiqueta, cepa, bodega, pos: 'ARRIBA', valor: 3 }] }
+// Cada cambio pisa una celda (valor absoluto). Si la fila se movió en la planilla, se busca el vino por SKU/etiqueta.
+app.post('/api/stock/:local', requireConteo(true), async (req, res) => {
+  const cambios = Array.isArray(req.body && req.body.cambios) ? req.body.cambios : [];
+  if (!cambios.length) return res.json({ ok: true, escritas: 0 });
+  try {
+    const { filas, h, cols, hoja } = await hojaStock(req.params.local);
+    const titulo = hoja.title.replace(/'/g, "''");
+    const data = [], noEncontrados = [];
+    for (const c of cambios) {
+      const u = cols.ubic.find((x) => x.nombre === String(c.pos || '').trim().toUpperCase());
+      if (!u) { noEncontrados.push(c.etiqueta || c.sku); continue; }
+      const buscada = [norm(c.sku), norm(c.etiqueta), norm(c.cepa), norm(c.bodega)].join('|');
+      let fila = Number(c.fila);
+      if (!(fila > h + 1 && claveFila(filas[fila - 1] || [], cols) === buscada)) {
+        fila = 0;
+        for (let i = h + 1; i < filas.length; i++) if (claveFila(filas[i] || [], cols) === buscada) { fila = i + 1; break; }
+      }
+      if (!fila) { noEncontrados.push(c.etiqueta || c.sku); continue; }
+      const v = Math.max(0, Math.round(num(c.valor)));
+      data.push({ range: `'${titulo}'!${String.fromCharCode(65 + u.k)}${fila}`, values: [[v === 0 ? '' : v]] });
+    }
+    if (data.length) {
+      await sheetsClient().spreadsheets.values.batchUpdate({
+        spreadsheetId: hoja.id,
+        requestBody: { valueInputOption: 'USER_ENTERED', data },
+      });
+    }
+    res.json({ ok: true, escritas: data.length, noEncontrados });
+  } catch (err) {
+    console.error(err);
+    const code = err.code || (err.response && err.response.status);
+    const msg = code === 403 ? `No puedo escribir en la planilla: compartila como Editor con ${serviceAccountEmail() || 'la cuenta de servicio'}` : err.message;
+    res.status(err.status || 500).json({ error: msg || 'Error al guardar en la planilla de stock' });
+  }
+});
+
+app.get(['/stock', '/stock/'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'stock.html'));
 });
 
 // ---------- Estáticos ----------
